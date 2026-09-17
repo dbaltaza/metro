@@ -180,6 +180,10 @@ class StationView:
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             if self.back_rect.collidepoint(event.pos):
                 return "back"
+            if self.hover and self.hover[0] == "train":
+                metro = self.hover[1]
+                if metro.current_station == self.name and metro.cooldown > 0:
+                    return ("ride", metro)
             for i, rect in enumerate(self.tab_rects):
                 if rect.collidepoint(event.pos) and i != self.tab:
                     self.tab = i
@@ -543,7 +547,9 @@ class StationView:
         elif kind == "staff":
             lines = ["Station staff", "Mind the gap."]
         else:
-            lines = [f"Train #{thing.id}", f"{len(thing.riders)} aboard", f"next stop {thing.destination or 'turning around'}"]
+            lines = [f"Train #{thing.id}", f"{len(thing.riders)} aboard", f"next stop {self._next_stop(thing)}"]
+            if thing.current_station == self.name and thing.cooldown > 0:
+                lines.append("click to board")
         rendered = [sprites.text(self.small, t, TEXT) for t in lines]
         rect = pygame.Rect(0, 0, max(r.get_width() for r in rendered) + 16, sum(r.get_height() for r in rendered) + 12)
         rect.midbottom = (round(x), round(y))

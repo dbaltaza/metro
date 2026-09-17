@@ -666,7 +666,8 @@ class MapScene:
 
 
 def run(sim: Simulation) -> None:
-    # Imported here because the station scene imports constants from this file.
+    # Imported here because the scenes import constants from this file.
+    from src.ride_view import RideView
     from src.station_view import StationView
 
     pygame.init()
@@ -675,8 +676,18 @@ def run(sim: Simulation) -> None:
     clock = pygame.time.Clock()
     world = World(sim.map)
     map_scene = MapScene(world, sim)
-    station_scene: StationView | None = None
+    scene = None  # None is the map; otherwise a StationView or RideView
     transition: Transition | None = None
+
+    def go(target) -> Transition:
+        """Start the doors transition towards a target: ("map",),
+        ("station", name) or ("ride", metro)."""
+        if target[0] == "map":
+            return Transition(target, HIGHLIGHT, "Metro de Lisboa", "back to the network")
+        if target[0] == "station":
+            return Transition(target, world.serving[target[1]][0].color, target[1], "entering the station")
+        metro = target[1]
+        return Transition(target, sim.map.line_named(metro.line).color, f"Train #{metro.id}", "mind the gap")
 
     paused = False
     speed = 1.0
@@ -693,31 +704,42 @@ def run(sim: Simulation) -> None:
                 speed = speeds[event.key]
             elif transition is not None:
                 continue
-            elif station_scene is not None:
-                if station_scene.handle(event) == "back":
-                    transition = Transition("", HIGHLIGHT, "Metro de Lisboa", "back to the network")
+            elif scene is not None:
+                result = scene.handle(event)
+                if result == "back":
+                    transition = go(("map",))
+                elif isinstance(result, tuple):
+                    transition = go(result)
             else:
                 target = map_scene.handle(event)
                 if target:
-                    transition = Transition(target, world.serving[target][0].color, target, "entering the station")
+                    transition = go(("station", target))
 
-        # Simulation and the station's animations run on scaled time, so the
+        # Simulation and the scenes' animations run on scaled time, so the
         # boarding choreography keeps pace with the trains at any speed.
         sim_dt = 0.0 if paused else dt * speed
         sim.update(sim_dt)
         events = sim.drain_events()
-        if station_scene is not None:
-            station_scene.update(sim_dt, events)
+        if scene is not None:
+            forced = scene.update(sim_dt, events)
+            if forced and transition is None:
+                transition = go(forced)
 
         if transition is not None:
             if transition.wants_swap():
-                station_scene = StationView(world, sim, transition.target) if transition.target else None
+                kind = transition.target[0]
+                if kind == "map":
+                    scene = None
+                elif kind == "station":
+                    scene = StationView(world, sim, transition.target[1])
+                else:
+                    scene = RideView(world, sim, transition.target[1])
                 transition.swapped = True
             if transition.update(dt):
                 transition = None
 
-        if station_scene is not None:
-            station_scene.draw(screen, paused, speed)
+        if scene is not None:
+            scene.draw(screen, paused, speed)
         else:
             map_scene.draw(screen, paused, speed)
         if transition is not None:
