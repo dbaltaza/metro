@@ -2,6 +2,8 @@
 import math
 from typing import Callable
 
+import os
+
 import pygame
 
 from src import sprites
@@ -671,8 +673,11 @@ def run(sim: Simulation) -> None:
     from src.station_view import StationView
 
     pygame.init()
+    icon = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docs", "icon.png")
+    if os.path.exists(icon):
+        pygame.display.set_icon(pygame.image.load(icon))
     screen = pygame.display.set_mode((WINDOW_W, WINDOW_H))
-    pygame.display.set_caption("Metro")
+    pygame.display.set_caption("Metro Lisboa")
     clock = pygame.time.Clock()
     world = World(sim.map)
     map_scene = MapScene(world, sim)

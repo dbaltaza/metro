@@ -1,4 +1,6 @@
-# Metro
+<p align="center"><img src="docs/logo.png" width="440" alt="Metro Lisboa"></p>
+
+# Metro Lisboa
 
 A Lisbon metro simulation you can walk around in. Trains run the four real
 lines, passengers plan journeys and change at interchanges, and you can drop
@@ -66,6 +68,9 @@ you get off at any stop.
 
 Everything is drawn at half size and scaled up without smoothing, which is
 where the pixel look comes from.
+
+The logo and window icon are drawn the same way by `tools/make_logo.py`,
+which writes `docs/logo.png` and `docs/icon.png`.
 
 ## Tests
 
