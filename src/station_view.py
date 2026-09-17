@@ -514,9 +514,10 @@ class StationView:
             end = self.line.stations[0] if direction < 0 else self.line.stations[-1]
             count = sum(1 for _, d in waiting if d == direction)
             arriving = sorted(
-                (eta, m) for m in self.sim.metros
-                if m.line == self.line.name
-                and (eta := self._eta(m, direction)) is not None
+                ((eta, m) for m in self.sim.metros
+                 if m.line == self.line.name
+                 and (eta := self._eta(m, direction)) is not None),
+                key=lambda pair: (pair[0], pair[1].id),
             )
             if not arriving:
                 status = "no train scheduled"

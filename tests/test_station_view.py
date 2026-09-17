@@ -96,3 +96,15 @@ def test_scenes_render_without_stray_alpha(display, world, sim):
     run_for(sim, 5, view)
     view.draw(display, False)
     assert view.world_surface.get_bitsize() == 24
+
+
+def test_board_copes_with_two_trains_at_the_same_arrival_time(world, sim):
+    """Equal estimates must not fall through to comparing Metro objects."""
+    view = StationView(world, sim, "Campo Pequeno")
+    run_for(sim, 5, view)
+    trains = [m for m in sim.metros if m.line == view.line.name][:2]
+    for m in trains:
+        m.current_station, m.destination = "Saldanha", "Campo Pequeno"
+        m.direction, m.cooldown, m.progress = -1, 0.0, 0.5
+    view._waiting_cache = None
+    view.draw(world and __import__("pygame").display.get_surface(), False)
