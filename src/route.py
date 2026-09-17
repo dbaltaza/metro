@@ -504,9 +504,13 @@ class Panel:
         # Event log.
         if sim.log:
             y = self._text(surface, self.head, "Events", x, y) + 4
+            width = self.rect.right - 18 - x
             for when, text in reversed(sim.log[-4:]):
                 m, s_ = divmod(int(when), 60)
-                y = self._text(surface, self.small, f"{m:02d}:{s_:02d}  {text}", x, y, MUTED) + 2
+                line = f"{m:02d}:{s_:02d}  {text}"
+                while self.small.size(line)[0] > width and len(line) > 12:
+                    line = line[:-2].rstrip() + "…"
+                y = self._text(surface, self.small, line, x, y, MUTED) + 2
             y = self._rule(surface, y + 8)
 
         if selected is None:
