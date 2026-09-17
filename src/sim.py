@@ -10,6 +10,28 @@ SPAWN_PER_SECOND = 1.3
 MAX_WAITING = 48
 
 
+def spread_trains(metro_map: Map, per_line: int) -> list[Metro]:
+    """Trains spaced evenly along every line, alternating direction, so the
+    service is already flowing at start instead of bunching at the ends."""
+    metros: list[Metro] = []
+    for line in metro_map.lines:
+        last = len(line.stations) - 1
+        for k in range(per_line):
+            index = round(k * last / max(per_line - 1, 1))
+            direction = 1 if k % 2 == 0 else -1
+            if index == last:
+                direction = -1
+            elif index == 0:
+                direction = 1
+            metros.append(Metro(
+                id=len(metros) + 1,
+                line=line.name,
+                current_station=line.stations[index],
+                direction=direction,
+            ))
+    return metros
+
+
 class Simulation:
     """Moves trains along their lines and shuffles passengers on and off."""
 
