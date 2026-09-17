@@ -16,4 +16,8 @@ class Metro(BaseModel):
     capacity: int = Field(default=116, gt=0)
     # True while waiting at a platform for the track ahead to clear.
     held: bool = False
+    # Seconds of breakdown left, if stopped between stations by an incident.
+    stalled: float = Field(default=0.0, ge=0.0)
+    # Leaves service at its next stop, riders returned to the platform.
+    retiring: bool = False
     riders: list[Passenger] = Field(default_factory=list)

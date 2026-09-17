@@ -7,6 +7,9 @@ from src.passenger import Passenger
 from src.routing import Leg, plan
 
 DWELL_SECONDS = 3.2
+STALL_SECONDS = (8.0, 16.0)
+INCIDENT_GAP = (45.0, 110.0)
+LOG_LIMIT = 6
 SPAWN_PER_SECOND = 1.3
 MAX_WAITING = 48
 
@@ -45,6 +48,12 @@ class Simulation:
         self._next_id = 1
         self._routes: dict[tuple[str, str], list[Leg]] = {}
         self.transfers = 0
+        # Score inputs and the event log shown in the panel.
+        self.wait_total = 0.0
+        self.boardings = 0
+        self.log: list[tuple[float, str]] = []
+        self.incidents = True
+        self._next_incident = self.rng.uniform(*INCIDENT_GAP)
         # (kind, passenger, metro) tuples since the last drain, so views can
         # animate what happened without the sim knowing about screens.
         self.events: list[tuple[str, Passenger, Metro]] = []
@@ -70,7 +79,19 @@ class Simulation:
         metro.progress = 0.0
         metro.cooldown = DWELL_SECONDS
         self._alight(metro)
+        if metro.retiring:
+            self._retire(metro)
+            return
         self._board(metro)
+
+    def _retire(self, metro: Metro) -> None:
+        station = self.map.stations[metro.current_station]
+        for passenger in metro.riders:
+            passenger.waited_since = self.clock
+            station.waiting.append(passenger)
+        metro.riders = []
+        self.metros.remove(metro)
+        self.note(f"Train #{metro.id} taken out of service at {metro.current_station}")
 
     def _alight(self, metro: Metro) -> None:
         here = metro.current_station
@@ -85,6 +106,7 @@ class Simulation:
                 passenger.legs = passenger.legs[1:]
             if passenger.legs:
                 # Changing lines: back onto the platform for the next leg.
+                passenger.waited_since = self.clock
                 station.waiting.append(passenger)
                 self.transfers += 1
             else:
@@ -113,6 +135,8 @@ class Simulation:
             if (line.stations.index(passenger.alight_at) - here) * direction > 0:
                 boarding.append(passenger)
                 room -= 1
+                self.wait_total += self.clock - passenger.waited_since
+                self.boardings += 1
         metro.riders.extend(boarding)
         self.events.extend(("board", p, metro) for p in boarding)
         station.waiting = [p for p in station.waiting if p not in boarding]
@@ -157,6 +181,9 @@ class Simulation:
             metro.held = True
             return
         metro.held = False
+        if metro.stalled > 0:
+            metro.stalled = max(metro.stalled - dt, 0.0)
+            return
         metro.progress = min(metro.progress + metro.speed * dt, 1.0)
         if metro.progress >= 1.0:
             self._arrive(metro)
@@ -189,15 +216,88 @@ class Simulation:
                 origin=station.name,
                 destination=destination,
                 legs=list(legs),
+                created=self.clock,
+                waited_since=self.clock,
             ))
             self._next_id += 1
 
     # -- public ---------------------------------------------------------------
 
+    def note(self, text: str) -> None:
+        self.log.append((self.clock, text))
+        del self.log[:-LOG_LIMIT]
+
+    def _tick_incidents(self, dt: float) -> None:
+        if not self.incidents:
+            return
+        self._next_incident -= dt
+        if self._next_incident > 0:
+            return
+        self._next_incident = self.rng.uniform(*INCIDENT_GAP)
+        moving = [m for m in self.metros if m.cooldown == 0 and m.progress > 0 and m.stalled == 0]
+        if not moving:
+            return
+        metro = self.rng.choice(moving)
+        metro.stalled = self.rng.uniform(*STALL_SECONDS)
+        self.note(f"Train #{metro.id} stalled between {metro.current_station} and {metro.destination}")
+
+    def trains_on(self, line_name: str) -> list[Metro]:
+        return [m for m in self.metros if m.line == line_name]
+
+    def add_train(self, line_name: str) -> Metro | None:
+        """Put a new train into service on the first free platform of a line."""
+        line = self.map.line_named(line_name)
+        taken = {
+            (m.current_station, self.departing_direction(m)) for m in self.metros if m.progress == 0
+        }
+        for station in line.stations:
+            for direction in (1, -1):
+                index = line.stations.index(station)
+                if not 0 <= index + direction < len(line.stations):
+                    continue
+                if (station, direction) in taken:
+                    continue
+                metro = Metro(
+                    id=max((m.id for m in self.metros), default=0) + 1,
+                    line=line_name,
+                    current_station=station,
+                    direction=direction,
+                    cooldown=DWELL_SECONDS,
+                )
+                self.metros.append(metro)
+                self._board(metro)
+                self.note(f"Train #{metro.id} enters service at {station}")
+                return metro
+        return None
+
+    def remove_train(self, line_name: str) -> Metro | None:
+        """Take a train off a line: one standing at a platform goes at once,
+        otherwise the emptiest one retires at its next stop."""
+        candidates = [m for m in self.trains_on(line_name) if not m.retiring]
+        if not candidates:
+            return None
+        standing = [m for m in candidates if m.progress == 0]
+        if standing:
+            metro = min(standing, key=lambda m: len(m.riders))
+            metro.current_station = metro.current_station
+            self._retire(metro)
+            return metro
+        metro = min(candidates, key=lambda m: len(m.riders))
+        metro.retiring = True
+        self.note(f"Train #{metro.id} will leave service at {metro.destination}")
+        return metro
+
+    def average_wait(self) -> float:
+        return self.wait_total / self.boardings if self.boardings else 0.0
+
+    def delivered_per_minute(self) -> float:
+        return self.delivered / (self.clock / 60) if self.clock > 1 else 0.0
+
     def update(self, dt: float) -> None:
         self.clock += dt
         self._spawn(dt)
-        for metro in self.metros:
+        self._tick_incidents(dt)
+        for metro in list(self.metros):
             self._advance(metro, dt)
 
     def drain_events(self) -> list[tuple[str, Passenger, Metro]]:

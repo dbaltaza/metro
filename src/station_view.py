@@ -153,7 +153,7 @@ class StationView:
                 return None
             index = self._index(metro.destination)
             direction = metro.direction
-            seconds = (1 - metro.progress) * hop
+            seconds = (1 - metro.progress) * hop + metro.stalled
 
         # From here on the train is about to arrive at stops[index].
         for _ in range(2 * len(stops) + 2):
@@ -405,7 +405,8 @@ class StationView:
                 _, metro, x, pit = item
                 draw_train(self, s, metro, x, pit)
 
-    def draw(self, screen: pygame.Surface, paused: bool) -> None:
+    def draw(self, screen: pygame.Surface, paused: bool, speed: float = 1.0) -> None:
+        self.speed = speed
         self._draw_world()
         scaled = pygame.transform.scale(self.world_surface, VIEW.size)
         screen.blit(scaled, VIEW.topleft)
@@ -460,6 +461,8 @@ class StationView:
                 return f"P{number}   HOLDING   #{metro.id}"
             if metro.direction == direction and metro.destination == self.name and metro.progress > ENTER_AFTER:
                 return f"P{number}   ARRIVING   #{metro.id}"
+            if metro.stalled > 0 and self._eta(metro, direction) is not None:
+                return f"P{number}   DELAYED   #{metro.id}"
         etas = [eta for m in self.sim.metros if m.line == self.line.name and (eta := self._eta(m, direction)) is not None]
         if not etas:
             return f"P{number}   NO SERVICE"
@@ -476,8 +479,9 @@ class StationView:
         screen.blit(sprites.text(self.head, "MAP", TEXT), (52, 28))
         title = sprites.text(self.title, self.name, TEXT)
         screen.blit(title, (136, 22))
-        if paused:
-            screen.blit(sprites.text(self.head, "PAUSED", HIGHLIGHT), (136 + title.get_width() + 18, 30))
+        flags = " ".join(f for f in ("PAUSED" if paused else "", f"{self.speed:g}x" if getattr(self, "speed", 1.0) != 1.0 else "") if f)
+        if flags:
+            screen.blit(sprites.text(self.head, flags, HIGHLIGHT), (136 + title.get_width() + 18, 30))
 
         self.tab_rects = []
         x = WINDOW_W - 24

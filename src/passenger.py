@@ -9,6 +9,10 @@ class Passenger(BaseModel):
     # The journey still ahead: (line, station to get off at) per leg. The
     # first leg is the one being waited for or ridden right now.
     legs: list[tuple[str, str]] = Field(default_factory=list)
+    # Simulation clock when they appeared, and when they last started waiting
+    # on a platform, for the average-wait score.
+    created: float = 0.0
+    waited_since: float = 0.0
 
     @property
     def next_line(self) -> str | None:

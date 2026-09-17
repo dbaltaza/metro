@@ -434,34 +434,84 @@ def draw_haloed(screen, font, string, color, center) -> None:
 # --- side panel -----------------------------------------------------------------
 
 class Panel:
+    """Right-hand panel: score, fleet controls, event log, hovered station."""
+
     def __init__(self):
         self.rect = pygame.Rect(MAP_RECT.right, 0, PANEL_W, WINDOW_H)
         self.title = pygame.font.SysFont("helvetica,arial", 20, bold=True)
         self.head = pygame.font.SysFont("helvetica,arial", 14, bold=True)
         self.body = pygame.font.SysFont("helvetica,arial", 13)
         self.small = pygame.font.SysFont("helvetica,arial", 11)
+        self.buttons: list[tuple[pygame.Rect, str, str]] = []  # rect, action, line
+        self.mouse = (0, 0)
 
     def _text(self, surface, font, string, x, y, color=TEXT) -> int:
         rendered = sprites.text(font, string, color)
         surface.blit(rendered, (x, y))
         return y + rendered.get_height()
 
-    def draw(self, surface, world: World, sim: Simulation, selected: str | None, paused: bool) -> None:
+    def _rule(self, surface, y: int) -> int:
+        pygame.draw.line(surface, PANEL_EDGE, (self.rect.x + 18, y), (self.rect.right - 18, y))
+        return y + 12
+
+    def _button(self, surface, x: int, y: int, label: str, action: str, line: str) -> pygame.Rect:
+        rect = pygame.Rect(x, y, 22, 20)
+        hovering = rect.collidepoint(self.mouse)
+        pygame.draw.rect(surface, (58, 64, 76) if hovering else (40, 44, 52), rect, border_radius=5)
+        text = sprites.text(self.head, label, TEXT)
+        surface.blit(text, text.get_rect(center=rect.center))
+        self.buttons.append((rect, action, line))
+        return rect
+
+    def click(self, pos) -> tuple[str, str] | None:
+        for rect, action, line in self.buttons:
+            if rect.collidepoint(pos):
+                return action, line
+        return None
+
+    def draw(self, surface, world: World, sim: Simulation, selected: str | None, paused: bool, speed: float = 1.0) -> None:
+        self.buttons = []
         pygame.draw.rect(surface, PANEL_BG, self.rect)
         pygame.draw.line(surface, PANEL_EDGE, self.rect.topleft, self.rect.bottomleft, 2)
         x, y = self.rect.x + 18, 18
+
         minutes, seconds = divmod(int(sim.clock), 60)
         y = self._text(surface, self.title, "Metro de Lisboa", x, y)
-        y = self._text(surface, self.body, f"{minutes:02d}:{seconds:02d}" + ("   PAUSED" if paused else ""), x, y + 2, MUTED)
-        y = self._text(surface, self.body, f"Waiting {sim.waiting_total()}   Delivered {sim.delivered}   Changes {sim.transfers}", x, y + 2, MUTED)
-        y += 16
-        pygame.draw.line(surface, PANEL_EDGE, (x, y), (self.rect.right - 18, y))
-        y += 14
+        status = f"{minutes:02d}:{seconds:02d}   {speed:g}x" + ("   PAUSED" if paused else "")
+        y = self._text(surface, self.body, status, x, y + 2, MUTED)
+        y = self._text(surface, self.small, "1 2 3 set speed   Space pauses", x, y + 2, MUTED) + 10
+        y = self._rule(surface, y)
+
+        # Score: what a dispatcher cares about.
+        y = self._text(surface, self.head, "Score", x, y)
+        y = self._text(surface, self.body, f"Average wait   {sim.average_wait():.0f}s", x, y + 4)
+        y = self._text(surface, self.body, f"Delivered      {sim.delivered_per_minute():.0f} per min", x, y + 2)
+        y = self._text(surface, self.small, f"waiting {sim.waiting_total()}   delivered {sim.delivered}   changes {sim.transfers}", x, y + 2, MUTED) + 10
+        y = self._rule(surface, y)
+
+        # Fleet: one lever per line.
+        y = self._text(surface, self.head, "Fleet", x, y) + 6
+        for line in world.map.lines:
+            pygame.draw.circle(surface, line.color, (x + 5, y + 10), 5)
+            count = len(sim.trains_on(line.name))
+            self._text(surface, self.body, f"{line.name}", x + 16, y + 2)
+            self._text(surface, self.small, f"{count} trains", x + 16, y + 17, MUTED)
+            self._button(surface, self.rect.right - 70, y + 4, "-", "remove", line.name)
+            self._button(surface, self.rect.right - 42, y + 4, "+", "add", line.name)
+            y += 32
+        y = self._rule(surface, y + 4)
+
+        # Event log.
+        if sim.log:
+            y = self._text(surface, self.head, "Events", x, y) + 4
+            for when, text in reversed(sim.log[-4:]):
+                m, s_ = divmod(int(when), 60)
+                y = self._text(surface, self.small, f"{m:02d}:{s_:02d}  {text}", x, y, MUTED) + 2
+            y = self._rule(surface, y + 8)
 
         if selected is None:
             self._text(surface, self.body, "Hover a station to preview it.", x, y, MUTED)
             self._text(surface, self.body, "Click to walk inside.", x, y + 20, MUTED)
-            self._text(surface, self.small, "Space pauses the simulation.", x, y + 48, MUTED)
             return
 
         station = world.map.stations[selected]
@@ -470,22 +520,23 @@ class Panel:
         for line in world.serving[selected]:
             pygame.draw.circle(surface, line.color, (x + 5, y + 7), 5)
             y = self._text(surface, self.body, line.name, x + 16, y, MUTED) + 2
-        y += 10
+        y += 8
         trains = sim.trains_at(selected)
         if trains:
             y = self._text(surface, self.head, "At the platform", x, y)
-            y = self._text(surface, self.body, ", ".join(f"#{m.id} ({len(m.riders)} aboard)" for m in trains), x, y + 2, MUTED) + 10
-        y = self._text(surface, self.head, f"Waiting  {len(station.waiting)}", x, y) + 8
+            y = self._text(surface, self.body, ", ".join(f"#{m.id} ({len(m.riders)} aboard)" for m in trains), x, y + 2, MUTED) + 8
+        y = self._text(surface, self.head, f"Waiting  {len(station.waiting)}", x, y) + 6
         if not station.waiting:
             self._text(surface, self.body, "Nobody here right now.", x, y, MUTED)
             return
-        for passenger in station.waiting[:16]:
+        shown = station.waiting[:max(1, (WINDOW_H - y - 30) // 19)]
+        for passenger in shown:
             surface.blit(pygame.transform.scale(sprites.tiny_person(passenger.id), (10, 16)), (x, y))
             via = f"  via {passenger.alight_at}" if passenger.changes else ""
             self._text(surface, self.body, f"to {passenger.destination}{via}", x + 16, y, TEXT)
             y += 19
-        if len(station.waiting) > 16:
-            self._text(surface, self.small, f"and {len(station.waiting) - 16} more", x, y, MUTED)
+        if len(station.waiting) > len(shown):
+            self._text(surface, self.small, f"and {len(station.waiting) - len(shown)} more", x, y, MUTED)
 
 
 # --- scenes and main loop -------------------------------------------------------
@@ -574,26 +625,40 @@ class MapScene:
 
     def handle(self, event: pygame.event.Event) -> str | None:
         if event.type == pygame.MOUSEMOTION:
+            self.panel.mouse = event.pos
             self.hovered = self.world.station_at(event.pos) if MAP_RECT.collidepoint(event.pos) else None
-        elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and MAP_RECT.collidepoint(event.pos):
-            return self.world.station_at(event.pos)
+        elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            if MAP_RECT.collidepoint(event.pos):
+                return self.world.station_at(event.pos)
+            action = self.panel.click(event.pos)
+            if action == None:
+                return None
+            kind, line = action
+            if kind == "add":
+                self.sim.add_train(line)
+            else:
+                self.sim.remove_train(line)
         return None
 
-    def draw(self, screen: pygame.Surface, paused: bool) -> None:
+    def draw(self, screen: pygame.Surface, paused: bool, speed: float = 1.0) -> None:
         world = self.world
         world.world.blit(world.base, (0, 0))
         draw_load(world, self.sim)
         draw_hover(world, self.hovered, HIGHLIGHT)
-        draw_trains(world, self.sim)
+        trains = draw_trains(world, self.sim)
         screen.blit(pygame.transform.scale(world.world, MAP_RECT.size), MAP_RECT.topleft)
         screen.blit(world.labels, MAP_RECT.topleft)
 
-        # The only number on the map: the waiting count of the hovered station.
+        # Stalled trains get a warning mark; held ones a small pause bar.
+        for metro, (x, y) in trains:
+            if metro.stalled > 0:
+                draw_haloed(screen, self.badge_font, "!", (255, 110, 96), (round(x), round(y) - 16))
+        # The only other number on the map: the waiting count of the hovered station.
         if self.hovered:
             count = len(world.map.stations[self.hovered].waiting)
             rect = world.building_rect(self.hovered)
             draw_haloed(screen, self.badge_font, f"{count} waiting", TEXT, (rect.centerx * PIX, rect.top * PIX - 12))
-        self.panel.draw(screen, world, self.sim, self.hovered, paused)
+        self.panel.draw(screen, world, self.sim, self.hovered, paused, speed)
 
 
 def run(sim: Simulation) -> None:
@@ -610,6 +675,8 @@ def run(sim: Simulation) -> None:
     transition: Transition | None = None
 
     paused = False
+    speed = 1.0
+    speeds = {pygame.K_1: 1.0, pygame.K_2: 2.0, pygame.K_3: 4.0}
     running = True
     while running:
         dt = min(clock.tick(FPS) / 1000.0, 0.1)
@@ -618,6 +685,8 @@ def run(sim: Simulation) -> None:
                 running = False
             elif event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
                 paused = not paused
+            elif event.type == pygame.KEYDOWN and event.key in speeds:
+                speed = speeds[event.key]
             elif transition is not None:
                 continue
             elif station_scene is not None:
@@ -628,11 +697,13 @@ def run(sim: Simulation) -> None:
                 if target:
                     transition = Transition(target, world.serving[target][0].color, target, "entering the station")
 
-        if not paused:
-            sim.update(dt)
+        # Simulation and the station's animations run on scaled time, so the
+        # boarding choreography keeps pace with the trains at any speed.
+        sim_dt = 0.0 if paused else dt * speed
+        sim.update(sim_dt)
         events = sim.drain_events()
         if station_scene is not None:
-            station_scene.update(dt, events)
+            station_scene.update(sim_dt, events)
 
         if transition is not None:
             if transition.wants_swap():
@@ -642,9 +713,9 @@ def run(sim: Simulation) -> None:
                 transition = None
 
         if station_scene is not None:
-            station_scene.draw(screen, paused)
+            station_scene.draw(screen, paused, speed)
         else:
-            map_scene.draw(screen, paused)
+            map_scene.draw(screen, paused, speed)
         if transition is not None:
             transition.draw(screen)
         pygame.display.flip()
