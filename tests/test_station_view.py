@@ -2,7 +2,8 @@ import pytest
 
 from src.route import World
 from src.sim import DWELL_SECONDS
-from src.station_view import DOOR_CLOSE_SECONDS, PLATFORM_1, PLATFORM_2, StationView
+from src.station_layout import DOOR_CLOSE_SECONDS, PLATFORM_1, PLATFORM_2
+from src.station_view import StationView
 from tests.conftest import FRAME, run_for
 
 

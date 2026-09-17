@@ -271,7 +271,6 @@ class World:
 
     def _render_base(self) -> pygame.Surface:
         s = pygame.Surface((MAP_IW, MAP_IH), 0, 24)
-        rng = random.Random(7)
         pygame.draw.rect(s, GROUT, s.get_rect())
         tile = 8
         for ty in range(0, MAP_IH, tile):
