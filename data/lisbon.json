@@ -1,0 +1,353 @@
+{
+  "name": "Metropolitano de Lisboa",
+  "stations": [
+    {
+      "name": "Reboleira",
+      "x": 20,
+      "y": 220
+    },
+    {
+      "name": "Amadora Este",
+      "x": 60,
+      "y": 260
+    },
+    {
+      "name": "Alfornelos",
+      "x": 100,
+      "y": 300
+    },
+    {
+      "name": "Pontinha",
+      "x": 140,
+      "y": 340
+    },
+    {
+      "name": "Carnide",
+      "x": 180,
+      "y": 380
+    },
+    {
+      "name": "Colégio Militar/Luz",
+      "x": 220,
+      "y": 420
+    },
+    {
+      "name": "Alto dos Moinhos",
+      "x": 260,
+      "y": 460
+    },
+    {
+      "name": "Laranjeiras",
+      "x": 300,
+      "y": 500
+    },
+    {
+      "name": "Jardim Zoológico",
+      "x": 340,
+      "y": 540
+    },
+    {
+      "name": "Praça de Espanha",
+      "x": 380,
+      "y": 580
+    },
+    {
+      "name": "São Sebastião",
+      "x": 420,
+      "y": 620
+    },
+    {
+      "name": "Parque",
+      "x": 460,
+      "y": 620
+    },
+    {
+      "name": "Marquês de Pombal",
+      "x": 500,
+      "y": 620
+    },
+    {
+      "name": "Avenida",
+      "x": 540,
+      "y": 660
+    },
+    {
+      "name": "Restauradores",
+      "x": 580,
+      "y": 700
+    },
+    {
+      "name": "Baixa-Chiado",
+      "x": 580,
+      "y": 780
+    },
+    {
+      "name": "Terreiro do Paço",
+      "x": 640,
+      "y": 820
+    },
+    {
+      "name": "Santa Apolónia",
+      "x": 700,
+      "y": 820
+    },
+    {
+      "name": "Odivelas",
+      "x": 500,
+      "y": 180
+    },
+    {
+      "name": "Senhor Roubado",
+      "x": 500,
+      "y": 220
+    },
+    {
+      "name": "Ameixoeira",
+      "x": 500,
+      "y": 260
+    },
+    {
+      "name": "Lumiar",
+      "x": 500,
+      "y": 300
+    },
+    {
+      "name": "Quinta das Conchas",
+      "x": 500,
+      "y": 340
+    },
+    {
+      "name": "Campo Grande",
+      "x": 500,
+      "y": 380
+    },
+    {
+      "name": "Cidade Universitária",
+      "x": 500,
+      "y": 420
+    },
+    {
+      "name": "Entre Campos",
+      "x": 500,
+      "y": 460
+    },
+    {
+      "name": "Campo Pequeno",
+      "x": 500,
+      "y": 500
+    },
+    {
+      "name": "Saldanha",
+      "x": 500,
+      "y": 540
+    },
+    {
+      "name": "Picoas",
+      "x": 500,
+      "y": 580
+    },
+    {
+      "name": "Rato",
+      "x": 460,
+      "y": 660
+    },
+    {
+      "name": "Telheiras",
+      "x": 440,
+      "y": 320
+    },
+    {
+      "name": "Alvalade",
+      "x": 540,
+      "y": 420
+    },
+    {
+      "name": "Roma",
+      "x": 580,
+      "y": 460
+    },
+    {
+      "name": "Areeiro",
+      "x": 620,
+      "y": 500
+    },
+    {
+      "name": "Alameda",
+      "x": 660,
+      "y": 540
+    },
+    {
+      "name": "Arroios",
+      "x": 660,
+      "y": 580
+    },
+    {
+      "name": "Anjos",
+      "x": 660,
+      "y": 620
+    },
+    {
+      "name": "Intendente",
+      "x": 660,
+      "y": 660
+    },
+    {
+      "name": "Martim Moniz",
+      "x": 660,
+      "y": 700
+    },
+    {
+      "name": "Rossio",
+      "x": 620,
+      "y": 740
+    },
+    {
+      "name": "Cais do Sodré",
+      "x": 540,
+      "y": 820
+    },
+    {
+      "name": "Aeroporto",
+      "x": 900,
+      "y": 140
+    },
+    {
+      "name": "Encarnação",
+      "x": 900,
+      "y": 180
+    },
+    {
+      "name": "Moscavide",
+      "x": 900,
+      "y": 220
+    },
+    {
+      "name": "Oriente",
+      "x": 900,
+      "y": 260
+    },
+    {
+      "name": "Cabo Ruivo",
+      "x": 900,
+      "y": 300
+    },
+    {
+      "name": "Olivais",
+      "x": 860,
+      "y": 340
+    },
+    {
+      "name": "Chelas",
+      "x": 820,
+      "y": 380
+    },
+    {
+      "name": "Bela Vista",
+      "x": 780,
+      "y": 420
+    },
+    {
+      "name": "Olaias",
+      "x": 740,
+      "y": 460
+    }
+  ],
+  "lines": [
+    {
+      "name": "Linha Azul",
+      "color": [
+        36,
+        116,
+        184
+      ],
+      "stations": [
+        "Reboleira",
+        "Amadora Este",
+        "Alfornelos",
+        "Pontinha",
+        "Carnide",
+        "Colégio Militar/Luz",
+        "Alto dos Moinhos",
+        "Laranjeiras",
+        "Jardim Zoológico",
+        "Praça de Espanha",
+        "São Sebastião",
+        "Parque",
+        "Marquês de Pombal",
+        "Avenida",
+        "Restauradores",
+        "Baixa-Chiado",
+        "Terreiro do Paço",
+        "Santa Apolónia"
+      ]
+    },
+    {
+      "name": "Linha Amarela",
+      "color": [
+        240,
+        178,
+        24
+      ],
+      "stations": [
+        "Odivelas",
+        "Senhor Roubado",
+        "Ameixoeira",
+        "Lumiar",
+        "Quinta das Conchas",
+        "Campo Grande",
+        "Cidade Universitária",
+        "Entre Campos",
+        "Campo Pequeno",
+        "Saldanha",
+        "Picoas",
+        "Marquês de Pombal",
+        "Rato"
+      ]
+    },
+    {
+      "name": "Linha Verde",
+      "color": [
+        0,
+        150,
+        92
+      ],
+      "stations": [
+        "Telheiras",
+        "Campo Grande",
+        "Alvalade",
+        "Roma",
+        "Areeiro",
+        "Alameda",
+        "Arroios",
+        "Anjos",
+        "Intendente",
+        "Martim Moniz",
+        "Rossio",
+        "Baixa-Chiado",
+        "Cais do Sodré"
+      ]
+    },
+    {
+      "name": "Linha Vermelha",
+      "color": [
+        203,
+        51,
+        48
+      ],
+      "stations": [
+        "Aeroporto",
+        "Encarnação",
+        "Moscavide",
+        "Oriente",
+        "Cabo Ruivo",
+        "Olivais",
+        "Chelas",
+        "Bela Vista",
+        "Olaias",
+        "Alameda",
+        "Saldanha",
+        "São Sebastião"
+      ]
+    }
+  ]
+}

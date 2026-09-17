@@ -36,3 +36,18 @@ def test_add_line_rejects_unknown_stations():
 def test_station_coordinates_are_validated():
     with pytest.raises(Exception):
         Station(name="bad", x=5000, y=0)
+
+
+def test_map_loads_from_json_and_round_trips(tmp_path, metro_map):
+    import json
+    from src.network import load_map
+    data = {
+        "stations": [{"name": s.name, "x": s.x, "y": s.y} for s in metro_map.stations.values()],
+        "lines": [{"name": l.name, "color": list(l.color), "stations": l.stations} for l in metro_map.lines],
+    }
+    path = tmp_path / "city.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    again = load_map(path)
+    assert list(again.stations) == list(metro_map.stations)
+    assert [l.stations for l in again.lines] == [l.stations for l in metro_map.lines]
+    assert again.lines[0].color == metro_map.lines[0].color
