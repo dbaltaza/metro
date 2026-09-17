@@ -1,7 +1,7 @@
 import pygame
 import pytest
 
-from src.ride_view import RideView
+from src.ride_view import DOOR_XS, RideView
 from src.route import World
 from src.sim import DWELL_SECONDS
 from src.station_view import StationView
@@ -95,3 +95,27 @@ def test_outside_scrolls_a_full_segment_between_stops(world, sim):
         assert 0.0 <= d <= 1500.0
     assert seen_zero and seen_far
     assert DWELL_SECONDS > 0
+
+
+def test_people_getting_off_walk_out_through_the_door(display, world, sim):
+    run_for(sim, 10)
+    train = _yellow_train(sim)
+    ride = RideView(world, sim, train)
+    for _ in range(int(180 / FRAME)):
+        sim.update(FRAME)
+        events = sim.drain_events()
+        ride.update(FRAME, events)
+        leavers = [p for kind, p, m in events if kind == "alight" and m is train]
+        if not leavers:
+            continue
+        walking = {w["passenger"].id: w for w in ride.walkers if w["fade"]}
+        assert all(p.id in walking for p in leavers), "someone got off without walking out"
+        w = walking[leavers[0].id]
+        assert w["end"][0] in DOOR_XS
+        # They are still drawn (standing up, then walking) until they are through the door.
+        while ride.time < w["t1"] + 0.1:
+            ride.draw(display, False, 1.0)
+            ride.update(FRAME, [])
+            assert w in ride.walkers
+        return
+    pytest.fail("nobody got off the train")

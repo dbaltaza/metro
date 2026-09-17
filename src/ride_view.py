@@ -53,6 +53,8 @@ POLE = (196, 200, 206)
 CEILING_LIGHT = (255, 246, 214)
 
 WALK_SPEED = 46.0
+DOOR_Y = FAR_BENCH.bottom + 4       # feet y at the door threshold
+EXIT_SECONDS = 0.35                 # stepping out through the doorway
 MAX_STANDING = 10
 
 
@@ -179,35 +181,39 @@ class RideView:
         self.time += dt
         if self.metro not in self.sim.metros:
             return ("station", self.metro.current_station)
-        self._assign_seats()
+        mine = [(kind, passenger) for kind, passenger, metro in events if metro is self.metro]
 
+        # Alighting first, while the leaver still owns a seat: they stand up when
+        # the doors open, walk to the nearest door and step out onto the platform.
         alighting = 0
-        boarding = 0
-        for kind, passenger, metro in events:
-            if metro is not self.metro:
+        for kind, passenger in mine:
+            if kind != "alight":
                 continue
-            if kind == "alight":
-                spot = self.seats.pop(passenger.id, None)
-                if spot is None:
-                    continue
-                x, y, _ = self.spots[spot]
-                door = min(DOOR_XS, key=lambda d: abs(d - x))
-                t0 = self.time + DOOR_OPEN_SECONDS + alighting * STEP_GAP
-                alighting += 1
-                t1 = t0 + math.hypot(door - x, FAR_BENCH.bottom + 4 - y) / WALK_SPEED
-                self.walkers.append(dict(passenger=passenger, start=(x, y), end=(door, FAR_BENCH.bottom + 4), t0=t0, t1=t1, fade=True, facing=-1))
-            else:
-                self._assign_seats()
-                spot = self.seats.get(passenger.id)
-                if spot is None:
-                    continue
-                x, y, facing = self.spots[spot]
-                door = min(DOOR_XS, key=lambda d: abs(d - x))
-                t0 = self.time + DOOR_OPEN_SECONDS + (alighting + boarding) * STEP_GAP + 0.2
-                boarding += 1
-                t1 = t0 + math.hypot(door - x, FAR_BENCH.bottom + 4 - y) / WALK_SPEED
-                self.walkers.append(dict(passenger=passenger, start=(door, FAR_BENCH.bottom + 4), end=(x, y), t0=t0, t1=t1, fade=False, facing=facing))
-        self.walkers = [w for w in self.walkers if self.time < w["t1"] + (0.25 if w["fade"] else 0.0)]
+            spot = self.seats.pop(passenger.id, None)
+            if spot is None:
+                continue
+            x, y, _ = self.spots[spot]
+            door = min(DOOR_XS, key=lambda d: abs(d - x))
+            t0 = self.time + DOOR_OPEN_SECONDS + alighting * STEP_GAP
+            alighting += 1
+            t1 = t0 + math.hypot(door - x, DOOR_Y - y) / WALK_SPEED
+            self.walkers.append(dict(passenger=passenger, start=(x, y), end=(door, DOOR_Y), t0=t0, t1=t1, fade=True, facing=-1))
+
+        self._assign_seats()
+        boarding = 0
+        for kind, passenger in mine:
+            if kind != "board":
+                continue
+            spot = self.seats.get(passenger.id)
+            if spot is None:
+                continue
+            x, y, facing = self.spots[spot]
+            door = min(DOOR_XS, key=lambda d: abs(d - x))
+            t0 = self.time + DOOR_OPEN_SECONDS + (alighting + boarding) * STEP_GAP + 0.2
+            boarding += 1
+            t1 = t0 + math.hypot(door - x, DOOR_Y - y) / WALK_SPEED
+            self.walkers.append(dict(passenger=passenger, start=(door, DOOR_Y), end=(x, y), t0=t0, t1=t1, fade=False, facing=facing))
+        self.walkers = [w for w in self.walkers if self.time < w["t1"] + (EXIT_SECONDS if w["fade"] else 0.0)]
         return None
 
     # -- static interior ----------------------------------------------------------------
@@ -369,10 +375,16 @@ class RideView:
             (x1, y1), (x2, y2) = w["start"], w["end"]
             x, y = x1 + (x2 - x1) * k, y1 + (y2 - y1) * k
             alpha = 255
-            if w["fade"] and k >= 1.0:
-                alpha = max(0, round(255 * (1 - (self.time - w["t1"]) / 0.25)))
             step = int(self.time * 9) % 2 + 1 if k < 1.0 else 0
-            drawables.append((y, x, w["passenger"], w["facing"] if k < 1 else 1, step, alpha))
+            facing = w["facing"] if k < 1 else 1
+            if w["fade"] and k >= 1.0:
+                # Through the doorway: keep walking away, up into the door, and fade.
+                out = min((self.time - w["t1"]) / EXIT_SECONDS, 1.0)
+                y -= 10 * out
+                alpha = max(0, round(255 * (1 - out)))
+                step = int(self.time * 9) % 2 + 1
+                facing = -1
+            drawables.append((y, x, w["passenger"], facing, step, alpha))
         for y, x, passenger, facing, step, alpha in sorted(drawables, key=lambda d: d[0]):
             draw_character(s, x, y, passenger.id, facing, step, alpha)
             if alpha == 255 and pygame.Rect(x - 8, y - 30, 16, 32).collidepoint(mouse):
