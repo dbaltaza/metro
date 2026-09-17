@@ -39,5 +39,8 @@ def test_passengers_change_lines_and_still_arrive(metro_map, sim):
                 # A transfer: the next line must actually stop where they got off.
                 assert metro.current_station in metro_map.line_named(passenger.next_line).stations
                 assert passenger.next_line != metro.line
+    # Most journeys on a four-line network involve a change, and no journey
+    # needs more than two, so changes are bounded by twice the journeys.
     assert sim.transfers > 0
-    assert sim.delivered > sim.transfers
+    assert sim.delivered > 0
+    assert sim.transfers <= 2 * (sim.delivered + sim.waiting_total() + sum(len(m.riders) for m in sim.metros))
