@@ -1,6 +1,5 @@
 
 import math
-import random
 from typing import Callable
 
 import pygame

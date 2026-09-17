@@ -456,6 +456,8 @@ class StationView:
                 continue
             if metro.current_station == self.name and metro.cooldown > 0 and self._side(metro) == direction:
                 return f"P{number}   BOARDING   #{metro.id}"
+            if metro.current_station == self.name and metro.held and self._side(metro) == direction:
+                return f"P{number}   HOLDING   #{metro.id}"
             if metro.direction == direction and metro.destination == self.name and metro.progress > ENTER_AFTER:
                 return f"P{number}   ARRIVING   #{metro.id}"
         etas = [eta for m in self.sim.metros if m.line == self.line.name and (eta := self._eta(m, direction)) is not None]

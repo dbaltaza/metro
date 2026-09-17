@@ -117,12 +117,46 @@ class Simulation:
         self.events.extend(("board", p, metro) for p in boarding)
         station.waiting = [p for p in station.waiting if p not in boarding]
 
+    def _side_on_arrival(self, metro: Metro) -> int:
+        """The platform side a train will occupy at its destination."""
+        line = self.map.line_named(metro.line)
+        j = line.stations.index(metro.destination)
+        if 0 <= j + metro.direction < len(line.stations):
+            return metro.direction
+        return -metro.direction
+
+    def _blocked(self, metro: Metro) -> bool:
+        """Headway rule: a train may not leave while another is on the segment
+        ahead going the same way, or standing at the next station on the
+        platform it would pull into."""
+        for other in self.metros:
+            if other is metro or other.line != metro.line:
+                continue
+            on_segment = (
+                other.cooldown == 0 and other.progress > 0
+                and other.current_station == metro.current_station
+                and other.destination == metro.destination
+            )
+            if on_segment:
+                return True
+            at_next_platform = (
+                other.current_station == metro.destination and other.progress == 0
+                and self.departing_direction(other) == self._side_on_arrival(metro)
+            )
+            if at_next_platform:
+                return True
+        return False
+
     def _advance(self, metro: Metro, dt: float) -> None:
         if metro.cooldown > 0:
             metro.cooldown = max(metro.cooldown - dt, 0.0)
             if metro.cooldown == 0:
                 self._plan(metro)
             return
+        if metro.progress == 0 and self._blocked(metro):
+            metro.held = True
+            return
+        metro.held = False
         metro.progress = min(metro.progress + metro.speed * dt, 1.0)
         if metro.progress >= 1.0:
             self._arrive(metro)
