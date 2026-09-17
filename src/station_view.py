@@ -189,9 +189,13 @@ class StationView:
         return x, y
 
     def _passenger_direction(self, passenger: Passenger) -> int | None:
-        if passenger.destination not in self.line.stations:
+        """Which platform this person waits on here, or None if their next
+        leg is on another line (they show up on that line's tab)."""
+        if passenger.next_line != self.line.name or passenger.alight_at not in self.line.stations:
             return None
-        return -1 if self._index(passenger.destination) < self._index(self.name) else 1
+        if passenger.alight_at == self.name:
+            return None
+        return -1 if self._index(passenger.alight_at) < self._index(self.name) else 1
 
     def _waiting_here(self) -> list[tuple[Passenger, int]]:
         if self._waiting_cache is not None:
@@ -884,6 +888,8 @@ class StationView:
         x, y = wx * PIX, VIEW.y + wy * PIX
         if kind == "passenger":
             lines = [f"to {thing.destination}"]
+            if thing.changes:
+                lines.append(f"changes at {thing.alight_at}")
         elif kind == "staff":
             lines = ["Station staff", "Mind the gap."]
         else:

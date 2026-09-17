@@ -4,6 +4,7 @@ import random
 from src.metro import Metro
 from src.network import Line, Map
 from src.passenger import Passenger
+from src.routing import Leg, plan
 
 DWELL_SECONDS = 3.2
 SPAWN_PER_SECOND = 1.3
@@ -42,9 +43,12 @@ class Simulation:
         self.clock = 0.0
         self.delivered = 0
         self._next_id = 1
+        self._routes: dict[tuple[str, str], list[Leg]] = {}
+        self.transfers = 0
         # (kind, passenger, metro) tuples since the last drain, so views can
         # animate what happened without the sim knowing about screens.
         self.events: list[tuple[str, Passenger, Metro]] = []
+        self._destinations = sorted(metro_map.stations)
         for metro in self.metros:
             self._plan(metro)
 
@@ -69,11 +73,22 @@ class Simulation:
         self._board(metro)
 
     def _alight(self, metro: Metro) -> None:
-        staying = [p for p in metro.riders if p.destination != metro.current_station]
+        here = metro.current_station
+        station = self.map.stations[here]
+        staying: list[Passenger] = []
         for passenger in metro.riders:
-            if passenger.destination == metro.current_station:
-                self.events.append(("alight", passenger, metro))
-        self.delivered += len(metro.riders) - len(staying)
+            if passenger.alight_at != here:
+                staying.append(passenger)
+                continue
+            self.events.append(("alight", passenger, metro))
+            if passenger.legs:
+                passenger.legs = passenger.legs[1:]
+            if passenger.legs:
+                # Changing lines: back onto the platform for the next leg.
+                station.waiting.append(passenger)
+                self.transfers += 1
+            else:
+                self.delivered += 1
         metro.riders = staying
 
     def departing_direction(self, metro: Metro) -> int:
@@ -92,10 +107,10 @@ class Simulation:
         room = metro.capacity - len(metro.riders)
         boarding: list[Passenger] = []
         for passenger in station.waiting:
-            if not room or passenger.destination not in line.stations:
+            if not room or passenger.next_line != line.name:
                 continue
-            # Only people whose destination lies ahead get on this train.
-            if (line.stations.index(passenger.destination) - here) * direction > 0:
+            # Only people whose stop on this line lies ahead get on this train.
+            if (line.stations.index(passenger.alight_at) - here) * direction > 0:
                 boarding.append(passenger)
                 room -= 1
         metro.riders.extend(boarding)
@@ -114,6 +129,12 @@ class Simulation:
 
     # -- passengers -----------------------------------------------------------
 
+    def route(self, origin: str, destination: str) -> list[Leg]:
+        key = (origin, destination)
+        if key not in self._routes:
+            self._routes[key] = plan(self.map, origin, destination)
+        return self._routes[key]
+
     def _lines_through(self, station_name: str) -> list[Line]:
         return [l for l in self.map.lines if station_name in l.stations]
 
@@ -123,18 +144,17 @@ class Simulation:
                 continue
             if self.rng.random() >= SPAWN_PER_SECOND * dt:
                 continue
-            reachable = {
-                name
-                for line in self._lines_through(station.name)
-                for name in line.stations
-                if name != station.name
-            }
-            if not reachable:
+            destination = self.rng.choice(self._destinations)
+            if destination == station.name:
+                continue
+            legs = self.route(station.name, destination)
+            if not legs:
                 continue
             station.waiting.append(Passenger(
                 id=self._next_id,
                 origin=station.name,
-                destination=self.rng.choice(sorted(reachable)),
+                destination=destination,
+                legs=list(legs),
             ))
             self._next_id += 1
 

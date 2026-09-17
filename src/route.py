@@ -455,7 +455,7 @@ class Panel:
         minutes, seconds = divmod(int(sim.clock), 60)
         y = self._text(surface, self.title, "Metro de Lisboa", x, y)
         y = self._text(surface, self.body, f"{minutes:02d}:{seconds:02d}" + ("   PAUSED" if paused else ""), x, y + 2, MUTED)
-        y = self._text(surface, self.body, f"Waiting {sim.waiting_total()}   Delivered {sim.delivered}", x, y + 2, MUTED)
+        y = self._text(surface, self.body, f"Waiting {sim.waiting_total()}   Delivered {sim.delivered}   Changes {sim.transfers}", x, y + 2, MUTED)
         y += 16
         pygame.draw.line(surface, PANEL_EDGE, (x, y), (self.rect.right - 18, y))
         y += 14
@@ -483,7 +483,8 @@ class Panel:
             return
         for passenger in station.waiting[:16]:
             surface.blit(pygame.transform.scale(sprites.tiny_person(passenger.id), (10, 16)), (x, y))
-            self._text(surface, self.body, f"to {passenger.destination}", x + 16, y, TEXT)
+            via = f"  via {passenger.alight_at}" if passenger.changes else ""
+            self._text(surface, self.body, f"to {passenger.destination}{via}", x + 16, y, TEXT)
             y += 19
         if len(station.waiting) > 16:
             self._text(surface, self.small, f"and {len(station.waiting) - 16} more", x, y, MUTED)

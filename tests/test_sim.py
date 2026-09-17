@@ -23,8 +23,9 @@ def test_only_passengers_heading_the_trains_way_board(metro_map, sim):
             boardings += 1
             line = metro_map.line_named(metro.line)
             here = line.stations.index(metro.current_station)
-            ahead = (line.stations.index(passenger.destination) - here) * sim.departing_direction(metro)
-            assert ahead > 0, f"{passenger.destination} is not ahead of {metro.current_station}"
+            assert passenger.next_line == metro.line
+            ahead = (line.stations.index(passenger.alight_at) - here) * sim.departing_direction(metro)
+            assert ahead > 0, f"{passenger.alight_at} is not ahead of {metro.current_station}"
     assert boardings > 100
 
 
