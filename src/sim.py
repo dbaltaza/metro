@@ -1,6 +1,8 @@
 
+import math
 import random
 
+from src.daytime import demand_at, hour_of, pull_at
 from src.metro import Metro
 from src.network import Line, Map, Station
 from src.passenger import Passenger
@@ -12,9 +14,25 @@ STALL_SECONDS = (8.0, 16.0)
 INCIDENT_GAP = (45.0, 110.0)
 LOG_LIMIT = 6
 SPAWN_PER_SECOND = 1.3
+# How far the hour of the day tilts where people set off from and head for.
+# At 1.0 the morning peak would leave the middle of the city spawning nobody
+# at all; this leaves every station working, just not equally.
+TIDE = 0.6
 MAX_WAITING = 48
 PATIENCE_SECONDS = 150.0   # a platform wait nobody puts up with
 GIVE_UP_SWEEP = 1.0        # how often to check for people who have had enough
+
+
+def _centrality(metro_map: Map) -> dict[str, float]:
+    """How central each station is, 0 out at the ends of the lines to 1 in the
+    middle of the city. Taken from where the stations actually are, so it
+    needs nothing said about them in the data."""
+    stations = list(metro_map.stations.values())
+    mid_x = sum(s.x for s in stations) / len(stations)
+    mid_y = sum(s.y for s in stations) / len(stations)
+    away = {s.name: math.hypot(s.x - mid_x, s.y - mid_y) for s in stations}
+    furthest = max(away.values()) or 1.0
+    return {name: 1.0 - d / furthest for name, d in away.items()}
 
 
 def spread_trains(metro_map: Map, per_line: int) -> list[Metro]:
@@ -63,6 +81,7 @@ class Simulation:
         # animate what happened without the sim knowing about screens.
         self.events: list[tuple[str, Passenger, Metro]] = []
         self._destinations = sorted(metro_map.stations)
+        self._centrality = _centrality(metro_map)
         for metro in self.metros:
             self._plan(metro)
 
@@ -217,12 +236,23 @@ class Simulation:
         return [l for l in self.map.lines if station_name in l.stations]
 
     def _spawn(self, dt: float) -> None:
+        hour = hour_of(self.clock)
+        busy = SPAWN_PER_SECOND * SETTINGS.demand * demand_at(hour) * dt
+        pull = pull_at(hour)
         for station in self.map.stations.values():
             if len(station.waiting) >= MAX_WAITING:
                 continue
-            if self.rng.random() >= SPAWN_PER_SECOND * SETTINGS.demand * dt:
+            # In the morning the outskirts empty into the middle, in the
+            # evening the middle empties back out, and the destinations lean
+            # the same way: two candidates, keep whichever suits the hour.
+            tide = 1.0 + pull * (0.5 - self._centrality[station.name]) * 2 * TIDE
+            if self.rng.random() >= busy * tide:
                 continue
             destination = self.rng.choice(self._destinations)
+            if pull:
+                other = self.rng.choice(self._destinations)
+                if (self._centrality[other] - self._centrality[destination]) * pull > 0:
+                    destination = other
             if destination == station.name:
                 continue
             legs = self.route(station.name, destination)

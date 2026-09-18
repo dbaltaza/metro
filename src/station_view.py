@@ -13,7 +13,7 @@ from src.network import Line
 from src.passenger import Passenger
 from src.route import (
     HIGHLIGHT, MUTED, PANEL_BG, PANEL_EDGE, TEXT, WINDOW_H, WINDOW_W, World,
-    lines_serving,
+    draw_day_clock, lines_serving,
 )
 from src.settings import SETTINGS
 from src.sim import DWELL_SECONDS, Simulation
@@ -687,6 +687,8 @@ class StationView:
         flags = " ".join(f for f in ("PAUSED" if paused else "", f"{self.speed:g}x" if getattr(self, "speed", 1.0) != 1.0 else "") if f)
         if flags:
             screen.blit(sprites.text(self.head, flags, HIGHLIGHT), (136 + title.get_width() + 18, 30))
+        # The rush is the reason to be anywhere, so the hour follows you down.
+        draw_day_clock(screen, self.head, self.small, self.sim.clock, (WINDOW_W // 2, 37))
 
         self.tab_rects = []
         x = WINDOW_W - 24

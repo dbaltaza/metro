@@ -5,6 +5,7 @@ from typing import Callable
 import pygame
 
 from src import sprites
+from src.daytime import clock_text, demand_at, hour_of, period_at
 from src.metro import Metro
 from src.network import Line, Map, Station
 from src.paths import resource
@@ -491,6 +492,24 @@ def draw_hover(world: World, name: str | None, color) -> None:
     pygame.draw.rect(world.world, color, rect, 1)
 
 
+def busy_color(hour: float):
+    """Lit up when the network is at its busiest, dim when nobody is out."""
+    busy = demand_at(hour)
+    return HIGHLIGHT if busy >= 1.6 else (TEXT if busy >= 0.9 else MUTED)
+
+
+def draw_day_clock(screen, font, small, clock: float, center) -> None:
+    """The hour of the day and what the city is doing at it, for the headers
+    of the scenes that have no panel to put it in."""
+    hour = hour_of(clock)
+    now = sprites.text(font, clock_text(hour), TEXT)
+    period = sprites.text(small, period_at(hour), busy_color(hour))
+    gap = 12
+    x = center[0] - (now.get_width() + gap + period.get_width()) // 2
+    screen.blit(now, (x, center[1] - now.get_height() // 2))
+    screen.blit(period, (x + now.get_width() + gap, center[1] - period.get_height() // 2))
+
+
 def draw_haloed(screen, font, string, color, center) -> None:
     """Small text with a dark outline, readable over any background."""
     halo = sprites.text(font, string, OUTLINE)
@@ -545,13 +564,17 @@ class Panel:
         pygame.draw.line(surface, PANEL_EDGE, self.rect.topleft, self.rect.bottomleft, 2)
         x, y = self.rect.x + 18, 18
 
-        minutes, seconds = divmod(int(sim.clock), 60)
+        hour = hour_of(sim.clock)
         title = self._text(surface, self.title, "Metro de Lisboa", x, y)
         stamp = sprites.text(self.small, f"v{VERSION}", shade(MUTED, -46))
         surface.blit(stamp, (self.rect.right - 18 - stamp.get_width(), y + 8))
         y = title
-        status = f"{minutes:02d}:{seconds:02d}   {speed:g}x" + ("   PAUSED" if paused else "")
-        y = self._text(surface, self.body, status, x, y + 2, MUTED)
+        status = f"{clock_text(hour)}   {speed:g}x" + ("   PAUSED" if paused else "")
+        rendered = sprites.text(self.body, status, MUTED)
+        surface.blit(rendered, (x, y + 2))
+        period = sprites.text(self.small, period_at(hour), busy_color(hour))
+        surface.blit(period, (x + rendered.get_width() + 12, y + 5))
+        y = y + 2 + rendered.get_height()
         y = self._text(surface, self.small, "1 2 3 set speed   Space pauses   S settings", x, y + 2, MUTED) + 10
         y = self._rule(surface, y)
 
@@ -582,8 +605,7 @@ class Panel:
             y = self._text(surface, self.head, "Events", x, y) + 4
             width = self.rect.right - 18 - x
             for when, text in reversed(sim.log[-4:]):
-                m, s_ = divmod(int(when), 60)
-                line = f"{m:02d}:{s_:02d}  {text}"
+                line = f"{clock_text(hour_of(when))}  {text}"
                 while self.small.size(line)[0] > width and len(line) > 12:
                     line = line[:-2].rstrip() + "…"
                 y = self._text(surface, self.small, line, x, y, MUTED) + 2

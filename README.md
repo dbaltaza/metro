@@ -41,6 +41,13 @@ Needs Python 3.12 or newer.
 
 ## What you can do
 
+**Run a day.** A second of play is a minute of the day, so a full day takes
+twenty-four minutes and opens at seven, climbing into the morning peak. The
+network fills and empties with the hour: the outskirts pour into the middle of
+the city in the morning, the middle pours back out in the evening, and by three
+in the morning the platforms are all but empty. Four trains a line does not
+cover a peak, so the fleet is yours to move.
+
 **Run the network from the map.** Drag the map to move around it and scroll to
 zoom in on a corner of the city; zoomed in, a small picture of the whole network
 sits in the corner with your view boxed on it, and clicking it takes you there.
@@ -114,6 +121,8 @@ pauses the game while they are open.
   0..1000 grid, four lines as ordered station lists.
 - `src/routing.py` plans a journey as legs of "ride this line, get off here",
   over a graph of (station, line) states so changing costs something.
+- `src/daytime.py` is the hour of the day: how busy the network is at it and
+  which way the city is travelling.
 - `src/sim.py` moves the trains, keeps them a safe headway apart, spawns
   passengers, and handles boarding, changes, stalls, the fleet and the score.
   It knows nothing about screens: scenes read its state and drain its events.
@@ -144,7 +153,7 @@ regenerates the pictures above. `tools/build_app.sh` packages the app.
 .venv/bin/python -m pytest -q
 ```
 
-A hundred and twenty-three tests, running headless in a couple of seconds each. They cover the
+A hundred and thirty-three tests, running headless in a couple of seconds each. They cover the
 rules that are easy to break by accident: people only board trains going their
 way, everyone is through the doors before they close, countdowns that never
 jump backwards, no two trains on one segment or one platform, nothing standing

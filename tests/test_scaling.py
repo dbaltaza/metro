@@ -23,19 +23,22 @@ def world(display, metro_map):
     return World(metro_map)
 
 
-def test_platform_queues_stay_bounded_over_a_long_session(metro_map):
+def test_the_network_empties_overnight_and_does_not_ratchet_up(metro_map):
     """São Sebastião used to reach thousands of people and never come down,
-    because MAX_WAITING only stopped new arrivals being invented."""
+    because MAX_WAITING only stopped new arrivals being invented.
+
+    With a day over it the queue is supposed to rise into the peaks, so the
+    question is no longer whether it grows: it is whether the small hours
+    clear it out, and whether the same hour a day later is any worse."""
     sim = Simulation(metro_map, spread_trains(metro_map, 4), seed=7)
-    marks = []
-    for target in (300, 600, 900):
+    marks = {}
+    for label, target in (("afternoon", 480), ("dawn", 1320), ("afternoon again", 1920)):
         while sim.clock < target:
             sim.update(FRAME)
             sim.drain_events()
-        marks.append(max(len(s.waiting) for s in metro_map.stations.values()))
-    # Not growing without bound: the late reading is no worse than the early
-    # one by more than a small margin.
-    assert marks[2] <= marks[0] * 1.5, f"platform queue still climbing: {marks}"
+        marks[label] = max(len(s.waiting) for s in metro_map.stations.values())
+    assert marks["dawn"] < marks["afternoon"] / 3, f"the night never cleared: {marks}"
+    assert marks["afternoon again"] <= marks["afternoon"] * 2, f"climbing day on day: {marks}"
     assert sim.gave_up > 0, "nobody ever gives up, so nothing bounds the queue"
     # Everyone left waiting is within the patience window.
     for station in metro_map.stations.values():
@@ -67,11 +70,18 @@ def test_boarding_removes_only_the_people_who_boarded(metro_map):
 
 
 def test_boarding_a_busy_platform_does_not_cost_a_frame(metro_map):
+    """Run until a train is actually standing at a packed platform, rather
+    than hoping one is at the busiest station on the frame we stop at."""
     sim = Simulation(metro_map, spread_trains(metro_map, 4), seed=7)
-    run_for(sim, 240)
-    busiest = max(metro_map.stations.values(), key=lambda s: len(s.waiting))
-    assert len(busiest.waiting) > 100, "not a busy enough platform to be a fair test"
-    metro = next(m for m in sim.metros if m.current_station == busiest.name)
+    metro = None
+    while metro is None and sim.clock < 600:
+        sim.update(FRAME)
+        sim.drain_events()
+        for candidate in sim.metros:
+            if candidate.cooldown > 0 and len(metro_map.stations[candidate.current_station].waiting) > 100:
+                metro = candidate
+                break
+    assert metro is not None, "no train ever stood at a platform with a hundred people on it"
     start = time.perf_counter()
     sim._board(metro)
     elapsed = (time.perf_counter() - start) * 1000

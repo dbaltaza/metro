@@ -19,17 +19,23 @@ def test_countdown_never_jumps(world, sim):
     when a train has just served this platform and the estimate resets."""
     view = StationView(world, sim, "Campo Pequeno")
     previous = {}
+    stalled = {m.id: m.stalled for m in sim.metros}
     worst = 0.0
     for _ in range(int(200 / FRAME)):
         sim.update(FRAME)
         view.update(FRAME, sim.drain_events())
         for metro in sim.metros:
+            # A train that has just broken down is allowed to put the estimate
+            # up: the wait really did get longer.
+            broke_down = metro.stalled > stalled.get(metro.id, 0.0)
+            stalled[metro.id] = metro.stalled
             if metro.line != view.line.name:
                 continue
             for direction in (-1, 1):
                 eta = view._eta(metro, direction)
                 key = (metro.id, direction)
-                if eta is not None and previous.get(key) is not None and not (previous[key] == 0 and eta > 0):
+                settled = previous.get(key) is not None and not (previous[key] == 0 and eta > 0)
+                if eta is not None and settled and not broke_down:
                     worst = max(worst, abs((eta - previous[key]) + FRAME))
                 previous[key] = eta
     assert worst <= FRAME + 1e-6
