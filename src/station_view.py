@@ -20,7 +20,8 @@ from src.sprites import draw_character, shade
 from src.station_layout import (
     IH, IW,
     BOARD, BUTTON, BUTTON_HOVER, DOOR_CLOSE_SECONDS, DOOR_OPEN_SECONDS, DOOR_W,
-    CROWD_LIMIT, ENTER_AFTER, ENTER_SECONDS, EXIT_SECONDS, FRONT_CAP, HEADER_BG, HEADER_H,
+    CROWD_LIMIT, ENTER_AFTER, ENTER_SECONDS, ENTRY_FADE, EXIT_SECONDS,
+    FRONT_CAP, HEADER_BG, HEADER_H,
     LEAVE_UNTIL, LED, PIT_A, PIT_B, PIX, PLATFORM_1, PLATFORM_2, ROOF_H, SIDE_H,
     SIGN_EDGE, STEP_GAP, TRAIN_LEN, VIEW, WALK_SPEED, WALL_FACE, WANDER_RANGE,
     WANDER_SPEED, ease_in, ease_out, exits, render_backdrop,
@@ -50,6 +51,7 @@ class StationView:
         self.seats_taken: dict[tuple[int, int], int] = {}
         self._waiting_cache: list[tuple[Passenger, int]] | None = None
         self._crowd_cache: list[tuple[Passenger, int]] | None = None
+        self._seeded = False   # has the crowd already on the platform been placed?
 
         self.title = pygame.font.SysFont("helvetica,arial", 26, bold=True)
         self.head = pygame.font.SysFont("helvetica,arial", 15, bold=True)
@@ -88,6 +90,7 @@ class StationView:
         self.tab = tab
         self.people.clear()
         self.seats_taken.clear()
+        self._seeded = False
         self._waiting_cache = None
         self._crowd_cache = None
         self._use_backdrop()
@@ -319,7 +322,19 @@ class StationView:
             if state is None:
                 home = self._spot(passenger, platform)
                 state = dict(pos=home, home=home, target=home, until=self.time + random.Random(passenger.id).uniform(0.3, 3.0),
-                             moving=False, facing=1, act="idle", pose="stand", seat=None, step=0)
+                             moving=False, facing=1, act="idle", pose="stand", seat=None, step=0, alpha=255)
+                if self._seeded:
+                    # Anyone who turns up after the scene has settled walks in
+                    # out of the nearest stairwell. Nobody ever appears in the
+                    # middle of the floor: the only people already standing
+                    # there are the ones who were there when you walked in.
+                    stairs = min(exits(platform), key=lambda r: abs(r.centerx - home[0]))
+                    jitter = random.Random(passenger.id * 613)
+                    state["pos"] = (stairs.centerx + jitter.uniform(-5, 5), stairs.centery + 6)
+                    state["act"] = "arriving"
+                    state["until"] = self.time + 60.0
+                    state["entered"] = self.time
+                    state["alpha"] = 0
                 self.people[passenger.id] = state
 
             if soon[direction] and state["act"] != "edge":
@@ -339,7 +354,9 @@ class StationView:
             dist = math.hypot(dx, dy)
             arrived = dist <= 0.6
             if not arrived:
-                speed = WALK_SPEED * 0.6 if state["act"] == "edge" else WANDER_SPEED
+                speed = WANDER_SPEED
+                if state["act"] in ("edge", "arriving"):
+                    speed = WALK_SPEED * 0.6
                 step = min(speed * dt, dist)
                 x, y = x + dx / dist * step, y + dy / dist * step
                 state["moving"] = True
@@ -349,6 +366,9 @@ class StationView:
             else:
                 state["moving"] = False
                 state["step"] = 0
+                if state["act"] == "arriving":
+                    # Reached the platform: get on with waiting like everyone else.
+                    self._choose_activity(passenger, direction, state)
                 act = state["act"]
                 if act == "edge":
                     state["facing"] = 1 if direction < 0 else -1   # facing the track
@@ -369,9 +389,13 @@ class StationView:
                     if waited > self.IMPATIENT_AFTER and phase < 0.5:
                         state["step"] = 1 if int(self.time * 8) % 2 else 0
             state["pos"] = (x, y)
+            if state["alpha"] < 255:
+                k = (self.time - state["entered"]) / ENTRY_FADE
+                state["alpha"] = min(255, max(0, round(255 * k)))
 
         # Keep standing people from stacking on the same pixels.
-        standing = [st for pid, st in self.people.items() if pid in alive and not st["moving"] and st["act"] not in ("bench",)]
+        standing = [st for pid, st in self.people.items()
+                    if pid in alive and not st["moving"] and st["act"] not in ("bench", "arriving")]
         for i, a in enumerate(standing):
             for b in standing[i + 1:]:
                 ax, ay = a["pos"]
@@ -384,6 +408,7 @@ class StationView:
             if pid not in alive and st.get("seat") is not None:
                 self.seats_taken.pop(st["seat"], None)
         self.people = {pid: st for pid, st in self.people.items() if pid in alive}
+        self._seeded = True
 
     def _side(self, metro: Metro) -> int:
         """Which track and platform a train uses here. While it sits at the
@@ -548,7 +573,7 @@ class StationView:
             if passenger.id in walking or state is None:
                 continue
             x, y = state["pos"]
-            drawables.append((y, 0, ("person", x, y, passenger, state["facing"], state["step"], 255, state["pose"])))
+            drawables.append((y, 0, ("person", x, y, passenger, state["facing"], state["step"], state["alpha"], state["pose"])))
         staff_x, staff_y = IW - 112, PLATFORM_1.y + 40
         drawables.append((staff_y, 0, ("staff", staff_x, staff_y)))
         for walker in shown:

@@ -1,3 +1,5 @@
+import math
+
 import pytest
 
 from src.route import World
@@ -187,3 +189,60 @@ def test_boarding_walk_starts_where_the_person_was_standing(world, sim):
         if checked >= 10:
             return
     pytest.fail(f"only {checked} boardings checked")
+
+
+def test_people_walk_in_from_the_stairs_instead_of_appearing(world, sim):
+    """Nobody materialises in the middle of the platform. The only people
+    standing there without walking in are the ones already present when the
+    scene opened, or when you switched to that line's platform."""
+    from src.station_layout import PLATFORM_1, PLATFORM_2, exits
+
+    run_for(sim, 20)
+    view = StationView(world, sim, "Anjos")
+    view.update(FRAME, [])          # seeds whoever is already on the platform
+    stair_xs = [r.centerx for p in (PLATFORM_1, PLATFORM_2) for r in exits(p)]
+    known = set(view.people)
+    walked_in = 0
+    for _ in range(int(120 / FRAME)):
+        sim.update(FRAME)
+        view.update(FRAME, sim.drain_events())
+        for pid, state in view.people.items():
+            if pid in known:
+                continue
+            distance = min(abs(state["pos"][0] - sx) for sx in stair_xs)
+            assert distance < 20, "someone appeared in the middle of the platform"
+            # "edge" if a train is already due: they walk in and head straight
+            # for the doors, which is still walking in.
+            assert state["act"] in ("arriving", "edge")
+            assert state["alpha"] == 0, "they should fade up out of the stairwell"
+            walked_in += 1
+        known = set(view.people)
+    assert walked_in > 10, "nobody arrived, so the test proved nothing"
+
+
+def test_arrivals_fade_up_walk_to_the_platform_and_then_settle(world, sim):
+    run_for(sim, 20)
+    view = StationView(world, sim, "Anjos")
+    view.update(FRAME, [])
+    known = set(view.people)
+    for _ in range(int(120 / FRAME)):
+        sim.update(FRAME)
+        view.update(FRAME, sim.drain_events())
+        fresh = [pid for pid in view.people if pid not in known]
+        known |= set(fresh)
+        if not fresh:
+            continue
+        pid = fresh[0]
+        start = view.people[pid]["pos"]
+        assert view.people[pid]["alpha"] == 0
+        # Follow them in: they fade up and walk away from the stairwell.
+        for _ in range(int(20 / FRAME)):
+            sim.update(FRAME)
+            view.update(FRAME, sim.drain_events())
+            state = view.people.get(pid)
+            if state is None:
+                break
+            if state["alpha"] == 255 and state["pos"] != start:
+                assert math.dist(state["pos"], start) > 2, "never left the stairs"
+                return
+    pytest.fail("no arrival walked in and settled")
