@@ -38,8 +38,11 @@ Needs Python 3.12 or newer.
 
 ## What you can do
 
-**Run the network from the map.** Hover a station to see who is waiting, and
-three pips beside each one light up as its crowd grows. The panel scores you on
+**Run the network from the map.** Drag the map to move around it and scroll to
+zoom in on a corner of the city; zoomed in, a small picture of the whole network
+sits in the corner with your view boxed on it, and clicking it takes you there.
+Hover a station to see who is waiting, and three pips beside each one light up
+as its crowd grows. The panel scores you on
 average wait and deliveries per minute, gives you a `+` and `-` per line to put
 a train into service or take one out, and logs stalls and fleet changes as they
 happen. Run the service too thin and people give up waiting and walk out, which
@@ -78,6 +81,10 @@ pauses the game while they are open.
 
 | Key or click | Does |
 |---|---|
+| Drag the map | Move around the network |
+| Scroll wheel, `+` `-` | Zoom in and out where the cursor is |
+| Arrow keys | Pan |
+| `0` | Fit the whole network again |
 | Click a station | Walk into it |
 | Click a stopped train (in a station) | Board it |
 | `E` or the green button (on a train) | Get off at this stop |
@@ -99,7 +106,10 @@ pauses the game while they are open.
   It knows nothing about screens: scenes read its state and drain its events.
 - `src/settings.py` holds the handful of values the settings menu changes.
 - `src/route.py` draws the map, owns the main loop and its three scenes, and
-  holds the transitions between them.
+  holds the transitions between them. `Camera` is what you move around the map
+  with: it only zooms in whole numbers of pixels, so the art never scales
+  unevenly, and station names are drawn live at screen resolution on top so
+  they stay sharp at any zoom.
 - `src/station_view.py`, `src/station_layout.py` and `src/station_train.py` are
   the station scene. `src/ride_view.py` is the ride. `src/sprites.py` has the
   pixel characters and the caches they need to stay cheap.
@@ -119,12 +129,13 @@ regenerates the pictures above. `tools/build_app.sh` packages the app.
 .venv/bin/python -m pytest -q
 ```
 
-Sixty-six tests, running headless in a couple of seconds each. They cover the
+Eighty-four tests, running headless in a couple of seconds each. They cover the
 rules that are easy to break by accident: people only board trains going their
 way, everyone is through the doors before they close, countdowns that never
 jump backwards, no two trains on one segment or one platform, nothing standing
-in a doorway, platform queues that stay bounded over a long session, and every
-scene rendering without raising. GitHub Actions runs them on every push, and a
+in a doorway, platform queues that stay bounded over a long session, a drag of
+the map that never turns into walking into a station, and every scene rendering
+without raising. GitHub Actions runs them on every push, and a
 tagged release builds the macOS app.
 
 ## License

@@ -23,6 +23,14 @@ FPS = 60
 PIX = 2
 MAP_IW, MAP_IH = MAP_RECT.width // PIX, MAP_RECT.height // PIX
 
+# Zoom steps for the map camera. PIX * zoom has to be a whole number of
+# screen pixels: anything else scales the world surface unevenly and the
+# pixels come out different sizes across the map.
+ZOOMS = (1.0, 1.5, 2.0, 3.0, 4.0)
+KEY_PAN = 520.0       # screen pixels a second while an arrow key is held
+DRAG_SLOP = 5         # pixels of drag before a press stops counting as a click
+MINIMAP_W = 132
+
 GROUND_A = (41, 43, 50)
 GROUND_B = (37, 39, 46)
 GROUT = (31, 33, 39)
@@ -39,8 +47,15 @@ SIGN_LIT = (255, 226, 140)
 BUILDING = (12, 10)
 INTERCHANGE_BUILDING = (16, 12)
 
-LABEL_COLOR = (208, 212, 222)
-LABEL_SIZE = 12
+LABEL_COLOR = (206, 212, 224)          # an ordinary stop
+LABEL_INTERCHANGE = (247, 249, 255)    # brighter where lines meet
+LABEL_SHADOW = (9, 10, 13)
+# One size per zoom step: names grow a little as you zoom in, nothing like as
+# fast as the map does, so they stay in proportion without swamping it.
+LABEL_SIZES = (12, 13, 14, 15, 16)
+LABEL_SIZE = LABEL_SIZES[0]
+LABEL_STROKE = ((-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1))
+LABEL_PAD = 3
 LABEL_GAP = 6.0
 METER_GAP = 3.0
 # Waiting counts at which the three load pips light up, and their colours.
@@ -157,6 +172,29 @@ def label_direction(metro_map: Map, station: Station) -> Vector:
 
 # --- labels ---------------------------------------------------------------------
 
+# Names are composed once and blitted whole. The map draws fifty of them every
+# frame, and the key space is small and fixed: names by font by colour.
+_label_cache: dict[tuple[int, str, tuple], pygame.Surface] = {}
+
+
+def station_label(font: pygame.font.Font, name: str, color) -> pygame.Surface:
+    """A station name cut out against a dark stroke, with a little weight under
+    it, so it reads over track, buildings and whatever else is behind it."""
+    key = (id(font), name, tuple(color))
+    label = _label_cache.get(key)
+    if label is None:
+        body = font.render(name, True, color)
+        stroke = font.render(name, True, LABEL_SHADOW)
+        size = (body.get_width() + LABEL_PAD * 2, body.get_height() + LABEL_PAD * 2)
+        label = pygame.Surface(size, pygame.SRCALPHA)
+        for dx, dy in LABEL_STROKE:
+            label.blit(stroke, (LABEL_PAD + dx, LABEL_PAD + dy))
+        label.blit(stroke, (LABEL_PAD, LABEL_PAD + 2))
+        label.blit(body, (LABEL_PAD, LABEL_PAD))
+        _label_cache[key] = label
+    return label
+
+
 def anchor_rect(label: pygame.Surface, center: Vector, direction: Vector, offset: float) -> pygame.Rect:
     dir_x, dir_y = direction
     anchor_x, anchor_y = center[0] + dir_x * offset, center[1] + dir_y * offset
@@ -200,8 +238,10 @@ def placement_penalty(rect, direction, preferred, bounds, placed, stops, tracks)
     return penalty + (1.0 - alignment) * PENALTY_OFF_PREFERRED
 
 
-def draw_labels(surface, metro_map: Map, project: Projection, font, bold_font) -> dict[str, Vector]:
-    """Place every station name and return the direction each one went."""
+def place_labels(metro_map: Map, project: Projection, font, bold_font) -> tuple[dict[str, Vector], dict[str, Vector]]:
+    """Lay every station name out once, at the zoom where the whole network
+    fits. Returns the direction each one went, and where it ended up in world
+    pixels so the camera can put it back on screen wherever it is looking."""
     bounds = MAP_RECT
     tracks = track_samples(metro_map, project)
     stops: list[pygame.Rect] = []
@@ -215,10 +255,12 @@ def draw_labels(surface, metro_map: Map, project: Projection, font, bold_font) -
     ordered = sorted(metro_map.stations.values(), key=lambda s: -len(lines_serving(metro_map, s.name)))
     placed: list[pygame.Rect] = []
     chosen: dict[str, Vector] = {}
+    spots: dict[str, Vector] = {}
     for station in ordered:
         interchange = is_interchange(metro_map, station.name)
         chosen_font = bold_font if interchange else font
-        label = chosen_font.render(station.name, True, LABEL_COLOR)
+        label = station_label(chosen_font, station.name,
+                              LABEL_INTERCHANGE if interchange else LABEL_COLOR)
         center = project(station)
         preferred = label_direction(metro_map, station)
         w, h = building_size(metro_map, station.name)
@@ -237,12 +279,22 @@ def draw_labels(surface, metro_map: Map, project: Projection, font, bold_font) -
         rect.clamp_ip(bounds)
         placed.append(rect)
         chosen[station.name] = direction
-        # A dark halo behind the text keeps it readable over tracks.
-        halo = chosen_font.render(station.name, True, OUTLINE)
-        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-            surface.blit(halo, rect.move(dx, dy))
-        surface.blit(label, rect)
-    return chosen
+        spots[station.name] = (rect.centerx / PIX, rect.centery / PIX)
+    return chosen, spots
+
+
+def draw_labels(screen: pygame.Surface, world: "World", camera: "Camera", hovered: str | None = None) -> None:
+    """Station names, drawn at screen resolution wherever the camera has put
+    them, so they stay sharp however far the map is zoomed in."""
+    margin = MAP_RECT.inflate(240, 80)
+    for name, spot in world.label_spots.items():
+        x, y = camera.to_screen(spot)
+        if not margin.collidepoint(x, y):
+            continue
+        interchange = world.interchange[name]
+        color = HIGHLIGHT if name == hovered else (LABEL_INTERCHANGE if interchange else LABEL_COLOR)
+        label = station_label(world.label_font(camera.step, interchange), name, color)
+        screen.blit(label, label.get_rect(center=(round(x), round(y))))
 
 
 # --- world ------------------------------------------------------------------------
@@ -253,8 +305,10 @@ class World:
     def __init__(self, metro_map: Map):
         self.map = metro_map
         self.project = make_projection(metro_map)
-        self.font = pygame.font.SysFont("helvetica,arial", LABEL_SIZE)
-        self.bold = pygame.font.SysFont("helvetica,arial", LABEL_SIZE, bold=True)
+        self.fonts = {(size, bold): pygame.font.SysFont("helvetica,arial", size, bold=bold)
+                      for size in set(LABEL_SIZES) for bold in (False, True)}
+        self.font = self.fonts[(LABEL_SIZE, False)]
+        self.bold = self.fonts[(LABEL_SIZE, True)]
         self.serving = {n: lines_serving(metro_map, n) for n in metro_map.stations}
         self.positions = {n: self.project(s) for n, s in metro_map.stations.items()}
         self.ipositions = {n: (x / PIX, y / PIX) for n, (x, y) in self.positions.items()}
@@ -263,10 +317,19 @@ class World:
         # later alpha blend over those pixels on a real display.
         self.world = pygame.Surface((MAP_IW, MAP_IH), 0, 24)
         self.base = self._render_base()
-        self.labels = pygame.Surface(MAP_RECT.size, pygame.SRCALPHA)
-        self.label_dirs = draw_labels(self.labels, metro_map, self.project, self.font, self.bold)
+        self.interchange = {n: is_interchange(metro_map, n) for n in metro_map.stations}
+        self.label_dirs, self.label_spots = place_labels(metro_map, self.project, self.font, self.bold)
         self.meters = self._meter_layouts()
         self.train_sprites = {line.name: self._train_sprite(line.color) for line in metro_map.lines}
+        self.minimap = self._render_minimap()
+
+    def label_font(self, step: int, bold: bool) -> pygame.font.Font:
+        """The name font for a zoom step. Interchanges are set in bold."""
+        return self.fonts[(LABEL_SIZES[min(step, len(LABEL_SIZES) - 1)], bold)]
+
+    def _render_minimap(self) -> pygame.Surface:
+        """The whole network, small, for the corner when the map is zoomed in."""
+        return pygame.transform.smoothscale(self.base, (MINIMAP_W, round(MINIMAP_W * MAP_IH / MAP_IW)))
 
     # -- static picture (world pixels) ------------------------------------------
 
@@ -350,10 +413,13 @@ class World:
             layouts[name] = ((rect.centerx + side[0] * gap, rect.centery + side[1] * gap), (tx, ty))
         return layouts
 
-    def station_at(self, pos: Vector) -> str | None:
-        best, best_d = None, 18.0
-        for name, (x, y) in self.positions.items():
-            d = math.hypot(pos[0] - x, pos[1] - y)
+    def station_at(self, pos: Vector, camera: "Camera") -> str | None:
+        """The station under a screen point, or None. The reach is measured in
+        world pixels, so it grows with the buildings as you zoom in."""
+        x, y = camera.to_world(pos)
+        best, best_d = None, 9.0
+        for name, (sx, sy) in self.ipositions.items():
+            d = math.hypot(x - sx, y - sy)
             if d < best_d:
                 best, best_d = name, d
         return best
@@ -404,7 +470,7 @@ def train_position(world: World, metro: Metro) -> tuple[Vector, float]:
 
 
 def draw_trains(world: World, sim: Simulation) -> list[tuple[Metro, Vector]]:
-    """Draw trains into the world surface; return screen positions for badges."""
+    """Draw trains into the world surface; return world positions for badges."""
     s = world.world
     placed = []
     for metro in sim.metros:
@@ -412,7 +478,7 @@ def draw_trains(world: World, sim: Simulation) -> list[tuple[Metro, Vector]]:
         base = world.train_sprites[metro.line]
         sprite = sprites.rotated(id(base), base, angle)
         s.blit(sprite, sprite.get_rect(center=(round(x), round(y))))
-        placed.append((metro, (x * PIX, y * PIX)))
+        placed.append((metro, (x, y)))
     return placed
 
 
@@ -962,52 +1028,220 @@ class SettingsMenu:
             y += self.ROW_H
 
 
+class Camera:
+    """What part of the map is on screen: a top-left corner in world pixels and
+    one of the zoom steps. It starts where the whole network fits, and never
+    lets you drag past the edge of it."""
+
+    def __init__(self):
+        self.step = 0
+        self.x = 0.0
+        self.y = 0.0
+
+    @property
+    def zoom(self) -> float:
+        return ZOOMS[self.step]
+
+    @property
+    def scale(self) -> int:
+        """Screen pixels per world pixel. Whole numbers only, see ZOOMS."""
+        return round(PIX * self.zoom)
+
+    @property
+    def size(self) -> tuple[int, int]:
+        """How much of the world fits on screen, in world pixels."""
+        scale = self.scale
+        return (min(-(-MAP_RECT.width // scale), MAP_IW),
+                min(-(-MAP_RECT.height // scale), MAP_IH))
+
+    def source(self) -> pygame.Rect:
+        """The patch of the world surface the map area is showing."""
+        width, height = self.size
+        return pygame.Rect(round(self.x), round(self.y), width, height)
+
+    def to_screen(self, point: Vector) -> Vector:
+        src, scale = self.source(), self.scale
+        return (MAP_RECT.x + (point[0] - src.x) * scale, MAP_RECT.y + (point[1] - src.y) * scale)
+
+    def to_world(self, point: Vector) -> Vector:
+        src, scale = self.source(), self.scale
+        return (src.x + (point[0] - MAP_RECT.x) / scale, src.y + (point[1] - MAP_RECT.y) / scale)
+
+    def move_to(self, x: float, y: float) -> None:
+        width, height = self.size
+        self.x = min(max(x, 0.0), MAP_IW - width)
+        self.y = min(max(y, 0.0), MAP_IH - height)
+
+    def pan(self, dx: float, dy: float) -> None:
+        """Move the view by a distance in screen pixels."""
+        self.move_to(self.x + dx / self.scale, self.y + dy / self.scale)
+
+    def centre_on(self, point: Vector) -> None:
+        width, height = self.size
+        self.move_to(point[0] - width / 2, point[1] - height / 2)
+
+    def zoom_to(self, step: int, focus: Vector | None = None) -> None:
+        """Change zoom, keeping whatever is under `focus` where it is."""
+        step = min(max(step, 0), len(ZOOMS) - 1)
+        if step == self.step:
+            return
+        if focus is None or not MAP_RECT.collidepoint(focus):
+            focus = MAP_RECT.center
+        wx, wy = self.to_world(focus)
+        self.step = step
+        scale = self.scale
+        self.move_to(wx - (focus[0] - MAP_RECT.x) / scale, wy - (focus[1] - MAP_RECT.y) / scale)
+
+    def fit(self) -> None:
+        self.step = 0
+        self.move_to(0.0, 0.0)
+
+
 class MapScene:
-    """The network overview. Hover to preview a station, click to enter it."""
+    """The network overview. Drag to move around, scroll to zoom, hover to
+    preview a station, click to walk into it."""
+
+    HINT = "drag to pan  \u00b7  scroll to zoom  \u00b7  0 fits the network"
 
     def __init__(self, world: World, sim: Simulation):
         self.world = world
         self.sim = sim
         self.panel = Panel()
         self.badge_font = pygame.font.SysFont("helvetica,arial", 10, bold=True)
+        self.hint_font = pygame.font.SysFont("helvetica,arial", 11)
+        self.camera = Camera()
         self.hovered: str | None = None
+        # Where the mouse and the camera were when the button went down, while
+        # a press is still live, and whether it has moved far enough to be a drag.
+        self.grab: tuple[Vector, Vector] | None = None
+        self.dragged = False
+        self.on_minimap = False
+
+    # -- the corner minimap ---------------------------------------------------
+
+    def minimap_rect(self) -> pygame.Rect:
+        rect = self.world.minimap.get_rect()
+        rect.bottomright = (MAP_RECT.right - 14, MAP_RECT.bottom - 14)
+        return rect
+
+    def _minimap_jump(self, pos: Vector) -> None:
+        rect = self.minimap_rect()
+        self.camera.centre_on(((pos[0] - rect.x) / rect.width * MAP_IW,
+                               (pos[1] - rect.y) / rect.height * MAP_IH))
+
+    # -- input ----------------------------------------------------------------
 
     def handle(self, event: pygame.event.Event) -> str | None:
+        camera = self.camera
         if event.type == pygame.MOUSEMOTION:
             self.panel.mouse = event.pos
-            self.hovered = self.world.station_at(event.pos) if MAP_RECT.collidepoint(event.pos) else None
-        elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-            if MAP_RECT.collidepoint(event.pos):
-                return self.world.station_at(event.pos)
-            action = self.panel.click(event.pos)
-            if action == None:
-                return None
-            kind, line = action
-            if kind == "add":
-                self.sim.add_train(line)
-            else:
-                self.sim.remove_train(line)
+            if self.on_minimap:
+                self._minimap_jump(event.pos)
+            elif self.grab is not None:
+                (mx, my), (cx, cy) = self.grab
+                camera.move_to(cx - (event.pos[0] - mx) / camera.scale,
+                               cy - (event.pos[1] - my) / camera.scale)
+                if math.hypot(event.pos[0] - mx, event.pos[1] - my) > DRAG_SLOP:
+                    self.dragged = True
+            self.hovered = (self.world.station_at(event.pos, camera)
+                            if MAP_RECT.collidepoint(event.pos) else None)
+        elif event.type == pygame.MOUSEWHEEL and event.y:
+            camera.zoom_to(camera.step + (1 if event.y > 0 else -1), pygame.mouse.get_pos())
+        elif event.type == pygame.KEYDOWN:
+            if event.key in (pygame.K_EQUALS, pygame.K_PLUS, pygame.K_KP_PLUS):
+                camera.zoom_to(camera.step + 1)
+            elif event.key in (pygame.K_MINUS, pygame.K_KP_MINUS):
+                camera.zoom_to(camera.step - 1)
+            elif event.key == pygame.K_0:
+                camera.fit()
+        elif event.type == pygame.MOUSEBUTTONDOWN and event.button in (1, 2, 3):
+            if camera.step and self.minimap_rect().collidepoint(event.pos):
+                self.on_minimap = True
+                self._minimap_jump(event.pos)
+            elif MAP_RECT.collidepoint(event.pos):
+                self.grab, self.dragged = (event.pos, (camera.x, camera.y)), False
+            elif event.button == 1:
+                self._panel_click(event.pos)
+        elif event.type == pygame.MOUSEBUTTONUP and event.button in (1, 2, 3):
+            grab, dragged = self.grab, self.dragged
+            self.grab, self.dragged, self.on_minimap = None, False, False
+            # A press that never moved the map is still a click on a station.
+            if grab is not None and not dragged and event.button == 1 and MAP_RECT.collidepoint(event.pos):
+                return self.world.station_at(event.pos, camera)
         return None
 
+    def _panel_click(self, pos: Vector) -> None:
+        action = self.panel.click(pos)
+        if action is None:
+            return
+        kind, line = action
+        if kind == "add":
+            self.sim.add_train(line)
+        else:
+            self.sim.remove_train(line)
+
+    def update(self, dt: float) -> None:
+        """Held arrow keys pan the map."""
+        held = pygame.key.get_pressed()
+        dx = held[pygame.K_RIGHT] - held[pygame.K_LEFT]
+        dy = held[pygame.K_DOWN] - held[pygame.K_UP]
+        if dx or dy:
+            self.camera.pan(dx * KEY_PAN * dt, dy * KEY_PAN * dt)
+
+    # -- drawing ---------------------------------------------------------------
+
     def draw(self, screen: pygame.Surface, paused: bool, speed: float = 1.0) -> None:
-        world = self.world
+        world, camera = self.world, self.camera
         world.world.blit(world.base, (0, 0))
         draw_load(world, self.sim)
         draw_hover(world, self.hovered, HIGHLIGHT)
         trains = draw_trains(world, self.sim)
-        screen.blit(pygame.transform.scale(world.world, MAP_RECT.size), MAP_RECT.topleft)
-        screen.blit(world.labels, MAP_RECT.topleft)
+
+        screen.set_clip(MAP_RECT)
+        src, scale = camera.source(), camera.scale
+        view = pygame.transform.scale(world.world.subsurface(src), (src.width * scale, src.height * scale))
+        screen.blit(view, MAP_RECT.topleft)
+        draw_labels(screen, world, camera, self.hovered)
 
         # Stalled trains get a warning mark; held ones a small pause bar.
-        for metro, (x, y) in trains:
+        for metro, spot in trains:
             if metro.stalled > 0:
+                x, y = camera.to_screen(spot)
                 draw_haloed(screen, self.badge_font, "!", (255, 110, 96), (round(x), round(y) - 16))
         # The only other number on the map: the waiting count of the hovered station.
         if self.hovered:
             count = len(world.map.stations[self.hovered].waiting)
-            rect = world.building_rect(self.hovered)
-            draw_haloed(screen, self.badge_font, f"{count} waiting", TEXT, (rect.centerx * PIX, rect.top * PIX - 12))
+            x, y = camera.to_screen(world.building_rect(self.hovered).midtop)
+            draw_haloed(screen, self.badge_font, f"{count} waiting", TEXT, (round(x), round(y) - 12))
+        self._draw_minimap(screen)
+        self._draw_hint(screen)
+        screen.set_clip(None)
         self.panel.draw(screen, world, self.sim, self.hovered, paused, speed)
+
+    def _draw_minimap(self, screen: pygame.Surface) -> None:
+        """Zoomed in, a corner picture of the whole network with the part you
+        are looking at boxed on it. Click or drag it to go somewhere."""
+        if not self.camera.step:
+            return
+        rect = self.minimap_rect()
+        frame = rect.inflate(6, 6)
+        pygame.draw.rect(screen, (14, 15, 19), frame)
+        pygame.draw.rect(screen, PANEL_EDGE, frame, 1)
+        screen.blit(self.world.minimap, rect)
+        src = self.camera.source()
+        box = pygame.Rect(round(rect.x + src.x * rect.width / MAP_IW),
+                          round(rect.y + src.y * rect.height / MAP_IH),
+                          max(round(src.width * rect.width / MAP_IW), 3),
+                          max(round(src.height * rect.height / MAP_IH), 3))
+        pygame.draw.rect(screen, HIGHLIGHT, box, 1)
+
+    def _draw_hint(self, screen: pygame.Surface) -> None:
+        width = sprites.text(self.hint_font, self.HINT, MUTED).get_width()
+        draw_haloed(screen, self.hint_font, self.HINT, MUTED,
+                    (MAP_RECT.x + 16 + width // 2, MAP_RECT.bottom - 16))
+        if self.camera.step:
+            draw_haloed(screen, self.hint_font, f"{self.camera.zoom:g}x", HIGHLIGHT,
+                        (MAP_RECT.x + 24, MAP_RECT.bottom - 34))
 
 
 def run(sim: Simulation) -> None:
@@ -1111,6 +1345,8 @@ def run(sim: Simulation) -> None:
             forced = scene.update(sim_dt, events)
             if forced and transition is None:
                 transition = go(forced)
+        elif transition is None and not menu.open:
+            map_scene.update(dt)
 
         if transition is not None:
             if transition.wants_swap():
