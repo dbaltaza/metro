@@ -1,10 +1,11 @@
 #!/bin/bash
 # Builds a double-clickable app with PyInstaller.
 #
-#   tools/build_app.sh
+#   tools/build_app.sh            build only
+#   tools/build_app.sh --install  build and copy the app into /Applications (macOS)
 #
-# On macOS the result is "dist/Metro Lisboa.app" (drag it to Applications);
-# on Linux and Windows a folder "dist/Metro Lisboa" with an executable inside.
+# On macOS the result is "dist/Metro Lisboa.app"; on Linux and Windows a
+# folder "dist/Metro Lisboa" with an executable inside.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -42,6 +43,14 @@ case "$(uname)" in MINGW*|MSYS*|CYGWIN*) SEP=";";; esac
 echo
 if [ "$(uname)" = "Darwin" ]; then
     echo "Built dist/$NAME.app"
+    if [ "${1:-}" = "--install" ]; then
+        TARGET=/Applications
+        [ -w "$TARGET" ] || TARGET="$HOME/Applications"
+        mkdir -p "$TARGET"
+        rm -rf "$TARGET/$NAME.app"
+        cp -R "dist/$NAME.app" "$TARGET/"
+        echo "Installed $TARGET/$NAME.app"
+    fi
 else
     echo "Built dist/$NAME/"
 fi

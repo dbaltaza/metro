@@ -25,13 +25,15 @@ Needs Python 3.12 or newer.
 - **Build an app** you can drop into Applications:
 
   ```
-  tools/build_app.sh
+  tools/build_app.sh --install
   ```
 
-  This produces `dist/Metro Lisboa.app` on macOS (a folder with an
-  executable on Linux and Windows), with the map data and icon inside, so it
-  runs without Python installed. The first launch of an unsigned app on macOS
-  needs a right-click, Open.
+  This builds `dist/Metro Lisboa.app` and copies it into Applications, so
+  it opens from Launchpad or Spotlight like any other app. It has Python,
+  the map data and the icon inside and runs without anything else installed.
+  Without `--install` it only builds. On Linux and Windows the result is a
+  folder `dist/Metro Lisboa` with an executable inside. The first launch of
+  an unsigned app on macOS may need a right-click, Open.
 
 ## What you can do
 
