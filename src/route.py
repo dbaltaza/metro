@@ -619,14 +619,22 @@ class Transition:
 
 
 class StepTransition(Transition):
-    """Stepping through a train door. The view rushes into the door and goes
-    dark, a beat with the door chime, then the new scene pulls back from its
-    own door. Used between a platform and the inside of a train."""
+    """Stepping through a train door. The view rushes towards the door you
+    clicked while the train's door leaves slide shut across the screen, a
+    beat with the door chime and the name on the closed doors, then the
+    leaves slide open on the new scene. Used between a platform and the
+    inside of a train."""
 
-    CLOSE, HOLD, OPEN = 0.42, 0.5, 0.55
-    ZOOM_IN = 2.4      # how far the old view rushes into the door
-    ZOOM_OUT = 1.35    # how far the new view starts zoomed before settling
+    CLOSE, HOLD, OPEN = 0.4, 0.55, 0.45
+    ZOOM_IN = 1.6      # how far the old view rushes into the door
+    ZOOM_OUT = 1.2     # how far the new view starts zoomed before settling
     CHIME = (255, 196, 60)
+    LEAF = (198, 202, 208)
+    LEAF_HI = (232, 234, 238)
+    LEAF_LO = (150, 154, 162)
+    BAND = (38, 42, 52)
+    PANE = (96, 132, 160)
+    RUBBER = (24, 22, 26)
 
     def __init__(self, target, color, title: str, subtitle: str, focus_out, focus_in):
         super().__init__(target, color, title, subtitle)
@@ -636,8 +644,13 @@ class StepTransition(Transition):
         self.scene = None                   # the new scene, set by the loop at swap
 
     def _coverage(self) -> float:
-        # Kept for anything that reads it; the step draws its own phases.
-        return 1.0 if self.phase == "hold" else 0.0
+        if self.phase == "close":
+            k = min(self.t / self.CLOSE, 1.0)
+            return 1 - (1 - k) ** 3
+        if self.phase == "hold":
+            return 1.0
+        k = min(self.t / self.OPEN, 1.0)
+        return (1 - k) ** 2
 
     @staticmethod
     def _zoomed(screen: pygame.Surface, frame: pygame.Surface, focus, zoom: float) -> None:
@@ -646,59 +659,87 @@ class StepTransition(Transition):
         fx, fy = focus
         screen.blit(pygame.transform.scale(frame, (w, h)), (round(fx - fx * zoom), round(fy - fy * zoom)))
 
-    def _dim(self, screen: pygame.Surface, amount: float) -> None:
-        if amount <= 0:
-            return
-        veil = pygame.Surface((WINDOW_W, WINDOW_H))
-        veil.fill((8, 8, 10))
-        veil.set_alpha(round(255 * min(amount, 1.0)))
-        screen.blit(veil, (0, 0))
-
     def _resolved_focus_in(self):
         if callable(self.focus_in):
             return self.focus_in(self.scene) if self.scene is not None else (WINDOW_W / 2, WINDOW_H / 2)
         return self.focus_in
 
+    def _leaves(self, screen: pygame.Surface, k: float) -> None:
+        """Two train door leaves closed to coverage k (1 = shut)."""
+        width = round(WINDOW_W / 2 * k)
+        if width <= 0:
+            return
+        for side in (0, 1):
+            leaf = pygame.Rect(0, 0, width, WINDOW_H) if side == 0 else pygame.Rect(WINDOW_W - width, 0, width, WINDOW_H)
+            # Draw the leaf at its full size and clip, so the design does not stretch.
+            full = pygame.Rect(leaf.right - WINDOW_W // 2, 0, WINDOW_W // 2, WINDOW_H) if side == 0 else pygame.Rect(leaf.x, 0, WINDOW_W // 2, WINDOW_H)
+            screen.set_clip(leaf)
+            pygame.draw.rect(screen, self.LEAF, full)
+            pygame.draw.rect(screen, self.LEAF_HI, (full.x, 0, full.width, 6))
+            pygame.draw.rect(screen, self.LEAF_LO, (full.x, WINDOW_H - 40, full.width, 40))
+            # The window: dark band across, a pane of glass in it.
+            band = pygame.Rect(full.x, 110, full.width, 330)
+            pygame.draw.rect(screen, self.BAND, band)
+            pane = pygame.Rect(0, 0, 200, 250)
+            pane.center = (full.right - 170 if side == 0 else full.x + 170, band.centery)
+            pygame.draw.rect(screen, self.PANE, pane, border_radius=10)
+            pygame.draw.rect(screen, shade(self.PANE, 40), (pane.x + 8, pane.y + 8, 30, 90), border_radius=6)
+            pygame.draw.rect(screen, self.RUBBER, pane, 3, border_radius=10)
+            # Line stripe under the window, like the cars.
+            pygame.draw.rect(screen, self.color, (full.x, band.bottom + 12, full.width, 8))
+            # Rubber edge where the leaves meet.
+            edge_x = full.right - 8 if side == 0 else full.x
+            pygame.draw.rect(screen, self.RUBBER, (edge_x, 0, 8, WINDOW_H))
+            pygame.draw.rect(screen, self.LEAF_LO, (edge_x + (0 if side == 0 else 7), 0, 1, WINDOW_H))
+        screen.set_clip(None)
+
     def draw(self, screen: pygame.Surface) -> None:
+        k = self._coverage()
         if self.phase == "close":
             if self.snapshot is None:
                 self.snapshot = screen.copy()
-            k = min(self.t / self.CLOSE, 1.0)
-            ease = k * k * k
-            self._zoomed(screen, self.snapshot, self.focus_out, 1 + (self.ZOOM_IN - 1) * ease)
-            self._dim(screen, k * k * 1.15)
+            self._zoomed(screen, self.snapshot, self.focus_out, 1 + (self.ZOOM_IN - 1) * k)
+            self._leaves(screen, k)
             return
         if self.phase == "hold":
-            screen.fill((8, 8, 10))
+            self._leaves(screen, 1.0)
             self._caption(screen, self.t / self.HOLD)
             return
-        k = 1 - min(self.t / self.OPEN, 1.0)
-        ease = k * k
         frame = screen.copy()
-        self._zoomed(screen, frame, self._resolved_focus_in(), 1 + (self.ZOOM_OUT - 1) * ease)
-        self._dim(screen, ease * 1.3)
-        if k > 0.55:
-            self._caption(screen, 1.0, fade=(k - 0.55) / 0.45)
+        self._zoomed(screen, frame, self._resolved_focus_in(), 1 + (self.ZOOM_OUT - 1) * k)
+        self._leaves(screen, k)
+        if k > 0.7:
+            self._caption(screen, 1.0, fade=(k - 0.7) / 0.3)
 
     def _caption(self, screen: pygame.Surface, progress: float, fade: float = 1.0) -> None:
-        cx, cy = WINDOW_W // 2, WINDOW_H // 2 + 40
+        """Name and chime lamps on a plate across the closed doors."""
+        cx, cy = WINDOW_W // 2, WINDOW_H // 2 + 60
         title = sprites.text(self.big, self.title, TEXT)
         sub = sprites.text(self.small, self.subtitle, MUTED)
+        plate = pygame.Rect(0, 0, max(title.get_width(), sub.get_width()) + 120, 150)
+        plate.center = (cx, cy)
         if fade < 1.0:
+            plate_s = pygame.Surface(plate.size, pygame.SRCALPHA)
+            plate_s.fill((*PANEL_BG, round(235 * fade)))
+            screen.blit(plate_s, plate.topleft)
             title = title.copy(); title.set_alpha(round(255 * fade))
             sub = sub.copy(); sub.set_alpha(round(255 * fade))
+        else:
+            pygame.draw.rect(screen, PANEL_BG, plate, border_radius=8)
+            pygame.draw.rect(screen, self.color, (plate.x, plate.y, plate.width, 4), border_top_left_radius=8, border_top_right_radius=8)
         screen.blit(title, title.get_rect(center=(cx, cy)))
         screen.blit(sub, sub.get_rect(center=(cx, cy + 34)))
         # The door chime: three lamps lighting up one after another.
         for i in range(3):
             lit = progress * 3 >= i + 0.5
-            color = self.CHIME if lit else self.DOOR_EDGE
             if fade < 1.0 and not lit:
                 continue
-            pygame.draw.circle(screen, color, (cx - 22 + i * 22, cy - 46), 5)
-            if lit:
-                pygame.draw.circle(screen, (255, 240, 190), (cx - 22 + i * 22, cy - 46), 2)
-
+            color = self.CHIME if lit else self.DOOR_EDGE
+            if fade < 1.0:
+                color = tuple(round(c * fade + PANEL_BG[j] * (1 - fade)) for j, c in enumerate(color))
+            pygame.draw.circle(screen, color, (cx - 22 + i * 22, cy - 40), 5)
+            if lit and fade >= 1.0:
+                pygame.draw.circle(screen, (255, 240, 190), (cx - 22 + i * 22, cy - 40), 2)
 
 class MapScene:
     """The network overview. Hover to preview a station, click to enter it."""

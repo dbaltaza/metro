@@ -75,8 +75,9 @@ def test_step_transition_zooms_through_the_door_and_swaps_in_the_dark(display):
             swapped_at = tr.phase
         tr.draw(display)
         if tr.phase == "hold":
-            # Fully dark while the scene is swapped underneath.
-            assert display.get_at((640, 100))[:3] == (8, 8, 10)
+            # The doors are shut while the scene is swapped underneath.
+            assert display.get_at((100, 30))[:3] == tr.LEAF
+            assert display.get_at((640, 30))[:3] == tr.RUBBER
         if done:
             break
     assert swapped_at == "hold"
