@@ -7,7 +7,8 @@ import pytest
 
 from src.route import (
     DRAG_SLOP, HIGHLIGHT, LABEL_COLOR, LABEL_SHADOW, MAP_IH, MAP_IW, MAP_RECT,
-    PIX, ZOOMS, Camera, MapScene, World, station_label,
+    PIX, WINDOW_H, WINDOW_W, ZOOMS, Camera, MapScene, World, draw_labels,
+    station_label,
 )
 from tests.conftest import FRAME, run_for
 
@@ -254,13 +255,26 @@ def test_a_name_is_cut_out_against_a_dark_stroke(world):
     assert any(c[3] == 0 for c in colors), "and it must not be a solid block"
 
 
-def test_the_hovered_name_lights_up(scene, display):
+def test_the_hovered_name_lights_up(scene):
+    """The name of the station under the cursor is drawn in the highlight
+    colour instead of the colour of an ordinary stop."""
     name = central(scene.world)
     scene.handle(move(screen_pos(scene, name)))
     assert scene.hovered == name
-    scene.draw(display, False)
+
     label = station_label(scene.world.label_font(0, scene.world.interchange[name]), name, HIGHLIGHT)
     rect = label.get_rect(center=tuple(round(v) for v in scene.camera.to_screen(scene.world.label_spots[name])))
-    lit = sum(display.get_at((x, y))[:3] == HIGHLIGHT
-              for x in range(rect.left, rect.right) for y in range(rect.top, rect.bottom))
-    assert lit > 20, "the name of the station under the cursor should pick up the highlight"
+
+    def yellow_in_the_name(hovered):
+        # Names on a layer of their own, so the highlight box round the
+        # building and the waiting count cannot be counted as the name. How
+        # much of a glyph comes out at full strength is the font's business,
+        # so this asks whether the pixels lean yellow, not for an exact match.
+        layer = pygame.Surface((WINDOW_W, WINDOW_H), pygame.SRCALPHA)
+        draw_labels(layer, scene.world, scene.camera, hovered)
+        pixels = (layer.get_at((x, y)) for x in range(rect.left, rect.right)
+                  for y in range(rect.top, rect.bottom))
+        return sum(1 for r, g, b, a in pixels if a > 40 and int(r) - int(b) > 60)
+
+    assert yellow_in_the_name(name) > 10
+    assert yellow_in_the_name(None) == 0, "an unhovered name must not be yellow at all"
