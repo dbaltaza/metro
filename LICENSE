@@ -1,0 +1,33 @@
+Metro Lisboa
+Copyright (c) 2026 dbaltaza. All rights reserved.
+
+This is source-available software, not open source.
+
+You may:
+
+  - read the source code and study how it works;
+  - download, build and run the game for your own personal, non-commercial
+    use;
+  - link to this repository.
+
+You may not, without written permission from the copyright holder:
+
+  - copy, publish or redistribute this software or any substantial part of
+    it, in source or binary form, as is or modified;
+  - publish a game, app or project based on this software or its code, art,
+    map data or design;
+  - use this software or any part of it for commercial purposes;
+  - remove or alter this notice.
+
+Contributions sent to this repository (for example pull requests) are
+licensed to the copyright holder under these same terms, and the
+contributor keeps the right to reuse their own contribution.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY ARISING
+FROM THE USE OF THE SOFTWARE.
+
+The Lisbon metro line names and colours are used to depict the real
+network; Metropolitano de Lisboa is not affiliated with this project.

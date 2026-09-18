@@ -99,3 +99,9 @@ They run headless and cover the simulation invariants: boarding only in the
 train's direction, everyone inside before the doors close, countdowns that
 never jump, no two trains on one segment, and the scenes rendering cleanly.
 GitHub Actions runs them on every push.
+
+## License
+
+Source-available, all rights reserved. You can read the code and play the
+game for yourself, but you can't redistribute it, publish something based
+on it, or use it commercially without permission. See [LICENSE](LICENSE).
