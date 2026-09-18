@@ -21,7 +21,7 @@ from src.sprites import draw_character, shade
 from src.station_layout import (
     IH, IW,
     BOARD, BUTTON, BUTTON_HOVER, DOOR_CLOSE_SECONDS, DOOR_OPEN_SECONDS, DOOR_W,
-    ENTER_AFTER, ENTER_SECONDS, ENTRY_FADE, EXIT_SECONDS,
+    ENTER_AFTER, ENTER_SECONDS, ENTRY_FADE, ENTRY_SPREAD, EXIT_SECONDS,
     FRONT_CAP, HEADER_BG, HEADER_H,
     LEAVE_UNTIL, LED, PIT_A, PIT_B, PIX, PLATFORM_1, PLATFORM_2, ROOF_H, SIDE_H,
     SIGN_EDGE, STEP_GAP, TRAIN_LEN, VIEW, WALK_SPEED, WALL_FACE, WANDER_RANGE,
@@ -334,7 +334,10 @@ class StationView:
                     state["pos"] = (stairs.centerx + jitter.uniform(-5, 5), stairs.centery + 6)
                     state["act"] = "arriving"
                     state["until"] = self.time + 60.0
-                    state["entered"] = self.time
+                    # When a train unloads, everyone changing lines turns up at
+                    # once. Stagger them so they come up the stairs as a stream
+                    # instead of appearing as one clump in the stairwell.
+                    state["entered"] = self.time + jitter.uniform(0.0, ENTRY_SPREAD)
                     state["alpha"] = 0
                 self.people[passenger.id] = state
 
@@ -349,6 +352,8 @@ class StationView:
             elif not soon[direction] and (state["act"] == "edge" or self.time >= state["until"]):
                 self._choose_activity(passenger, direction, state)
 
+            if self.time < state.get("entered", 0.0):
+                continue        # still on their way down the stairs, not out yet
             x, y = state["pos"]
             tx, ty = state["target"]
             dx, dy = tx - x, ty - y

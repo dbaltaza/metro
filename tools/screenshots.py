@@ -44,16 +44,31 @@ def main() -> None:
     MapScene(world, sim).draw(screen, False, 1.0)
     pygame.image.save(screen, os.path.join(DOCS, "map.png"))
 
-    # A station with a train in, doors open.
-    view = StationView(world, sim, "Anjos")
-    for _ in range(int(400 / FRAME)):
+    # An interchange, so the line tabs show, caught with a train at the
+    # platform, its doors open and people waiting on both sides.
+    view = StationView(world, sim, "Alameda")
+    best = None
+    for _ in range(int(600 / FRAME)):
         sim.update(FRAME)
         view.update(FRAME, sim.drain_events())
-        if any(m.line == view.line.name and m.current_station == view.name and 1.0 < m.cooldown < 2.6
-               for m in sim.metros):
+        train = next((m for m in sim.metros if m.line == view.line.name
+                      and m.current_station == view.name and 1.0 < m.cooldown < 2.6), None)
+        if train is None:
+            continue
+        # Count who is actually out on the platform, not who is queued: people
+        # still coming up the stairs are mid-fade and look like ghosts.
+        out = {-1: 0, 1: 0}
+        for passenger, side in view._crowd():
+            state = view.people.get(passenger.id)
+            if state is not None and state["alpha"] == 255 and state["act"] != "arriving":
+                out[side] += 1
+        both = min(out.values())
+        if best is None or both > best:
+            best = both
+            view.draw(screen, False, 1.0)
+            pygame.image.save(screen, os.path.join(DOCS, "station.png"))
+        if both >= 12:
             break
-    view.draw(screen, False, 1.0)
-    pygame.image.save(screen, os.path.join(DOCS, "station.png"))
 
     # Inside the busiest train, between stops.
     train = max(sim.metros, key=lambda m: len(m.riders))

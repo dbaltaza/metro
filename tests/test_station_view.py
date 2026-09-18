@@ -157,7 +157,11 @@ def test_platform_crowd_has_a_life_and_lines_up_for_the_train(world, sim):
                 assert st["pose"] == "phone"
         for direction in (-1, 1):
             if view._train_soon(direction):
-                mine = [view.people[p.id] for (p, d) in view._crowd() if d == direction and p.id in view.people]
+                # People still on their way down the stairs are not out on the
+                # platform yet, so they are invisible and have no bearing.
+                mine = [view.people[p.id] for (p, d) in view._crowd()
+                        if d == direction and p.id in view.people
+                        and view.people[p.id]["alpha"] > 0]
                 assert all(st["act"] == "edge" for st in mine)
                 # Once there, they face the track: platform 1 looks down, platform 2 up.
                 for st in mine:
