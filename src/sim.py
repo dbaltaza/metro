@@ -5,6 +5,7 @@ from src.metro import Metro
 from src.network import Line, Map, Station
 from src.passenger import Passenger
 from src.routing import Leg, plan
+from src.settings import SETTINGS
 
 DWELL_SECONDS = 3.2
 STALL_SECONDS = (8.0, 16.0)
@@ -219,7 +220,7 @@ class Simulation:
         for station in self.map.stations.values():
             if len(station.waiting) >= MAX_WAITING:
                 continue
-            if self.rng.random() >= SPAWN_PER_SECOND * dt:
+            if self.rng.random() >= SPAWN_PER_SECOND * SETTINGS.demand * dt:
                 continue
             destination = self.rng.choice(self._destinations)
             if destination == station.name:
@@ -251,7 +252,7 @@ class Simulation:
         if self._next_sweep > 0:
             return
         self._next_sweep = GIVE_UP_SWEEP
-        cutoff = self.clock - PATIENCE_SECONDS
+        cutoff = self.clock - SETTINGS.patience
         for station in self.map.stations.values():
             if not station.waiting:
                 continue
@@ -260,7 +261,7 @@ class Simulation:
             station.waiting = keeping
 
     def _tick_incidents(self, dt: float) -> None:
-        if not self.incidents:
+        if not (self.incidents and SETTINGS.incidents):
             return
         self._next_incident -= dt
         if self._next_incident > 0:

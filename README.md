@@ -44,6 +44,10 @@ and `-` per line to put a train into service or take one out, and logs stalls
 and fleet changes. Run the service too thin and people give up waiting and
 walk out, which the panel counts against you.
 
+**`S` opens the settings**, which pause the game: how fast passengers arrive,
+whether trains ever stall, how long people will wait before giving up, and
+how big a crowd is drawn on a platform. Arrow keys or the mouse change them.
+
 **In a station**, both platforms of the line are live: trains pull in, doors
 open, people get off and the queues file in, then the doors close. The signs
 count down to the next train. Interchanges have a tab per line. Click a train
@@ -67,6 +71,7 @@ you get off at any stop.
 | `E` or the green button (on a train) | Get off at this stop |
 | `Tab` (in an interchange) | Switch line |
 | `Esc` or the MAP button | Back to the network |
+| `S` | Open the settings menu |
 | `Space` | Pause |
 | `1` `2` `3` | Run at 1x, 2x, 4x |
 | `+` `-` (panel) | Add or remove a train on a line |

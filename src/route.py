@@ -8,6 +8,7 @@ from src import sprites
 from src.metro import Metro
 from src.network import Line, Map, Station
 from src.paths import resource
+from src.settings import OPTIONS, SETTINGS, choice_index
 from src.sim import Simulation
 from src.sprites import OUTLINE, shade
 
@@ -480,7 +481,7 @@ class Panel:
         y = self._text(surface, self.title, "Metro de Lisboa", x, y)
         status = f"{minutes:02d}:{seconds:02d}   {speed:g}x" + ("   PAUSED" if paused else "")
         y = self._text(surface, self.body, status, x, y + 2, MUTED)
-        y = self._text(surface, self.small, "1 2 3 set speed   Space pauses", x, y + 2, MUTED) + 10
+        y = self._text(surface, self.small, "1 2 3 set speed   Space pauses   S settings", x, y + 2, MUTED) + 10
         y = self._rule(surface, y)
 
         # Score: what a dispatcher cares about.
@@ -745,6 +746,219 @@ class StepTransition(Transition):
             if lit and fade >= 1.0:
                 pygame.draw.circle(screen, (255, 240, 190), (cx - 22 + i * 22, cy - 40), 2)
 
+class StationTransition(Transition):
+    """Walking down into a station. Tiled walls close over the map from top
+    and bottom, you get the entrance sign with the lines that stop there while
+    it loads, then the walls part on the platform."""
+
+    CLOSE, HOLD, OPEN = 0.45, 1.15, 0.5
+    TILE = (62, 60, 68)
+    TILE_DK = (50, 48, 56)
+    TILE_EDGE = (38, 36, 44)
+    SIGN_BG = (26, 38, 76)
+
+    def __init__(self, target, color, title: str, subtitle: str, lines):
+        super().__init__(target, color, title, subtitle)
+        self.lines = list(lines)
+        self.plate = pygame.font.SysFont("helvetica,arial", 30, bold=True)
+        self.tag = pygame.font.SysFont("helvetica,arial", 13, bold=True)
+
+    def _coverage(self) -> float:
+        if self.phase == "close":
+            k = min(self.t / self.CLOSE, 1.0)
+            return 1 - (1 - k) ** 3
+        if self.phase == "hold":
+            return 1.0
+        return (1 - min(self.t / self.OPEN, 1.0)) ** 2
+
+    def _tiles(self, screen: pygame.Surface, rect: pygame.Rect, from_top: bool) -> None:
+        """A tiled station wall, laid in courses from the outside edge in."""
+        pygame.draw.rect(screen, self.TILE_DK, rect)
+        tile_w, tile_h = 54, 27
+        rows = rect.height // tile_h + 2
+        for row in range(rows):
+            y = rect.y + row * tile_h if from_top else rect.bottom - (row + 1) * tile_h
+            stagger = (tile_w // 2) if row % 2 else 0
+            for x in range(-tile_w, WINDOW_W + tile_w, tile_w):
+                tile = pygame.Rect(x + stagger, y, tile_w - 2, tile_h - 2)
+                clipped = tile.clip(rect)
+                if clipped.width <= 0 or clipped.height <= 0:
+                    continue
+                screen.set_clip(rect)
+                pygame.draw.rect(screen, self.TILE, tile)
+                pygame.draw.line(screen, shade(self.TILE, 14), (tile.x, tile.y), (tile.right - 1, tile.y))
+                pygame.draw.line(screen, self.TILE_EDGE, (tile.x, tile.bottom - 1), (tile.right - 1, tile.bottom - 1))
+                screen.set_clip(None)
+        # A band in the line's colour along the edge that meets the middle.
+        edge_y = rect.bottom - 6 if from_top else rect.y
+        pygame.draw.rect(screen, self.color, (0, edge_y, WINDOW_W, 6))
+        pygame.draw.rect(screen, shade(self.color, -60), (0, edge_y + (5 if from_top else 0), WINDOW_W, 1))
+
+    def draw(self, screen: pygame.Surface) -> None:
+        k = self._coverage()
+        half = round(WINDOW_H / 2 * k)
+        if half <= 0:
+            return
+        self._tiles(screen, pygame.Rect(0, 0, WINDOW_W, half), from_top=True)
+        self._tiles(screen, pygame.Rect(0, WINDOW_H - half, WINDOW_W, half), from_top=False)
+        if k < 0.995:
+            return
+
+        cx, cy = WINDOW_W // 2, WINDOW_H // 2
+        # Escalator steps running down behind the sign, so it reads as descending.
+        band = pygame.Rect(cx - 210, cy - 132, 420, 84)
+        pygame.draw.rect(screen, (34, 34, 40), band)
+        step = 14
+        offset = int((self.t * 52) % step)
+        for y in range(band.y - step + offset, band.bottom, step):
+            line = pygame.Rect(band.x, y, band.width, 3)
+            clipped = line.clip(band)
+            if clipped.height:
+                pygame.draw.rect(screen, (74, 76, 84), clipped)
+                pygame.draw.rect(screen, (46, 46, 54), (clipped.x, clipped.bottom - 1, clipped.width, 1))
+        pygame.draw.rect(screen, self.TILE_EDGE, band, 2)
+
+        # The red M over the steps, the way an entrance is signed.
+        m = pygame.Rect(0, 0, 58, 58)
+        m.center = (cx, band.centery)
+        pygame.draw.rect(screen, (20, 20, 24), m.inflate(6, 6), border_radius=14)
+        pygame.draw.rect(screen, (216, 40, 46), m, border_radius=12)
+        pygame.draw.rect(screen, shade((216, 40, 46), 34), (m.x + 4, m.y + 3, m.width - 8, 2))
+        glyph = sprites.text(self.big, "M", (250, 250, 250))
+        screen.blit(glyph, glyph.get_rect(center=m.center))
+
+        # Station name on the blue plate.
+        name = sprites.text(self.plate, self.title.upper(), (240, 242, 248))
+        plate = pygame.Rect(0, 0, max(name.get_width() + 72, 320), 56)
+        plate.center = (cx, cy + 4)
+        pygame.draw.rect(screen, (16, 16, 20), plate.inflate(6, 6), border_radius=5)
+        pygame.draw.rect(screen, self.SIGN_BG, plate, border_radius=4)
+        pygame.draw.rect(screen, (230, 234, 242), plate, 2, border_radius=4)
+        pygame.draw.rect(screen, self.color, (plate.x + 8, plate.y + 10, 8, plate.height - 20))
+        screen.blit(name, name.get_rect(center=(plate.centerx + 10, plate.centery)))
+
+        # Which lines stop here.
+        y = plate.bottom + 22
+        widths = [sprites.text(self.tag, l.name, TEXT).get_width() + 34 for l in self.lines]
+        x = cx - sum(widths) // 2 - 6 * (len(self.lines) - 1) // 2
+        for line, width in zip(self.lines, widths):
+            chip = pygame.Rect(x, y, width, 24)
+            pygame.draw.rect(screen, (34, 36, 42), chip, border_radius=12)
+            pygame.draw.circle(screen, line.color, (chip.x + 14, chip.centery), 6)
+            text = sprites.text(self.tag, line.name, TEXT)
+            screen.blit(text, text.get_rect(midleft=(chip.x + 26, chip.centery)))
+            x += width + 6
+
+        sub = sprites.text(self.small, self.subtitle, MUTED)
+        screen.blit(sub, sub.get_rect(center=(cx, y + 54)))
+        bar = pygame.Rect(0, 0, 260, 6)
+        bar.center = (cx, y + 82)
+        pygame.draw.rect(screen, (40, 42, 50), bar, border_radius=3)
+        fill = 0.0 if self.phase == "close" else (self.t / self.HOLD if self.phase == "hold" else 1.0)
+        pygame.draw.rect(screen, self.color, (bar.x, bar.y, round(bar.width * min(fill, 1.0)), bar.height), border_radius=3)
+
+
+class SettingsMenu:
+    """A panel of game settings over whatever scene is showing. The game is
+    paused while it is open, so nothing moves under it."""
+
+    ROW_H = 58
+    WIDTH = 520
+
+    def __init__(self):
+        self.open = False
+        self.row = 0
+        self.mouse = (0, 0)
+        self.title = pygame.font.SysFont("helvetica,arial", 24, bold=True)
+        self.head = pygame.font.SysFont("helvetica,arial", 15, bold=True)
+        self.body = pygame.font.SysFont("helvetica,arial", 13)
+        self.small = pygame.font.SysFont("helvetica,arial", 11)
+        self.chips: list[tuple[pygame.Rect, str, object]] = []
+        height = 96 + self.ROW_H * len(OPTIONS)
+        self.rect = pygame.Rect(0, 0, self.WIDTH, height)
+        self.rect.center = (WINDOW_W // 2, WINDOW_H // 2)
+
+    def toggle(self) -> None:
+        self.open = not self.open
+
+    def handle(self, event: pygame.event.Event) -> bool:
+        """Returns True when the menu has taken the event, so the scene
+        underneath never sees a click meant for a setting."""
+        if not self.open:
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_s:
+                self.toggle()
+                return True
+            return False
+        if event.type == pygame.MOUSEMOTION:
+            self.mouse = event.pos
+            return True
+        if event.type == pygame.KEYDOWN:
+            if event.key in (pygame.K_ESCAPE, pygame.K_s):
+                self.open = False
+            elif event.key in (pygame.K_DOWN, pygame.K_UP):
+                step = 1 if event.key == pygame.K_DOWN else -1
+                self.row = (self.row + step) % len(OPTIONS)
+            elif event.key in (pygame.K_LEFT, pygame.K_RIGHT):
+                field, _, choices, _ = OPTIONS[self.row]
+                step = 1 if event.key == pygame.K_RIGHT else -1
+                i = (choice_index(field) + step) % len(choices)
+                setattr(SETTINGS, field, choices[i][1])
+            return True
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            for rect, field, value in self.chips:
+                if rect.collidepoint(event.pos):
+                    setattr(SETTINGS, field, value)
+                    self.row = [o[0] for o in OPTIONS].index(field)
+                    return True
+            if not self.rect.collidepoint(event.pos):
+                self.open = False
+            return True
+        return True
+
+    def draw(self, screen: pygame.Surface) -> None:
+        if not self.open:
+            return
+        self.chips = []
+        veil = pygame.Surface((WINDOW_W, WINDOW_H), pygame.SRCALPHA)
+        veil.fill((8, 9, 12, 190))
+        screen.blit(veil, (0, 0))
+
+        pygame.draw.rect(screen, PANEL_BG, self.rect, border_radius=10)
+        pygame.draw.rect(screen, PANEL_EDGE, self.rect, 2, border_radius=10)
+        pygame.draw.rect(screen, HIGHLIGHT, (self.rect.x, self.rect.y, self.rect.width, 4),
+                         border_top_left_radius=10, border_top_right_radius=10)
+
+        x = self.rect.x + 28
+        y = self.rect.y + 22
+        screen.blit(sprites.text(self.title, "Settings", TEXT), (x, y))
+        hint = "arrows or click to change,  S or Esc closes"
+        screen.blit(sprites.text(self.small, hint, MUTED), (x, y + 30))
+        y += 58
+
+        for i, (field, label, choices, note) in enumerate(OPTIONS):
+            if i == self.row:
+                row_rect = pygame.Rect(self.rect.x + 12, y - 8, self.rect.width - 24, self.ROW_H - 6)
+                pygame.draw.rect(screen, (34, 38, 46), row_rect, border_radius=6)
+            screen.blit(sprites.text(self.head, label, TEXT), (x, y))
+            screen.blit(sprites.text(self.small, note, MUTED), (x, y + 19))
+            chosen = choice_index(field)
+            cx = self.rect.right - 28
+            for j in range(len(choices) - 1, -1, -1):
+                name, value = choices[j]
+                width = sprites.text(self.body, name, TEXT).get_width() + 22
+                chip = pygame.Rect(cx - width, y + 2, width, 26)
+                cx -= width + 6
+                selected = j == chosen
+                hovering = chip.collidepoint(self.mouse)
+                fill = HIGHLIGHT if selected else ((58, 64, 76) if hovering else (40, 44, 52))
+                pygame.draw.rect(screen, fill, chip, border_radius=13)
+                colour = (24, 24, 28) if selected else TEXT
+                text = sprites.text(self.body, name, colour)
+                screen.blit(text, text.get_rect(center=chip.center))
+                self.chips.append((chip, field, value))
+            y += self.ROW_H
+
+
 class MapScene:
     """The network overview. Hover to preview a station, click to enter it."""
 
@@ -807,6 +1021,7 @@ def run(sim: Simulation) -> None:
     clock = pygame.time.Clock()
     world = World(sim.map)
     map_scene = MapScene(world, sim)
+    menu = SettingsMenu()
     scene = None  # None is the map; otherwise a StationView or RideView
     transition: Transition | None = None
 
@@ -842,7 +1057,8 @@ def run(sim: Simulation) -> None:
                                       lambda view: platform_door(view, metro))
                 step.line_name = metro.line
                 return step
-            return Transition(target, world.serving[target[1]][0].color, target[1], "entering the station")
+            serving = world.serving[target[1]]
+            return StationTransition(target, serving[0].color, target[1], "walking down to the platform", serving)
         metro = target[1]
         color = sim.map.line_named(metro.line).color
         if isinstance(scene, StationView):
@@ -859,7 +1075,11 @@ def run(sim: Simulation) -> None:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
-            elif event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
+                continue
+            # The settings menu sits over everything and eats what it uses.
+            if menu.handle(event):
+                continue
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
                 paused = not paused
             elif event.type == pygame.KEYDOWN and event.key in speeds:
                 speed = speeds[event.key]
@@ -878,7 +1098,7 @@ def run(sim: Simulation) -> None:
 
         # Simulation and the scenes' animations run on scaled time, so the
         # boarding choreography keeps pace with the trains at any speed.
-        sim_dt = 0.0 if paused else dt * speed
+        sim_dt = 0.0 if (paused or menu.open) else dt * speed
         sim.update(sim_dt)
         events = sim.drain_events()
         if scene is not None:
@@ -907,6 +1127,7 @@ def run(sim: Simulation) -> None:
             map_scene.draw(screen, paused, speed)
         if transition is not None:
             transition.draw(screen)
+        menu.draw(screen)
         pygame.display.flip()
 
     pygame.quit()

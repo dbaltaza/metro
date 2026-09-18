@@ -15,12 +15,13 @@ from src.route import (
     HIGHLIGHT, MUTED, PANEL_BG, PANEL_EDGE, TEXT, WINDOW_H, WINDOW_W, World,
     lines_serving,
 )
+from src.settings import SETTINGS
 from src.sim import DWELL_SECONDS, Simulation
 from src.sprites import draw_character, shade
 from src.station_layout import (
     IH, IW,
     BOARD, BUTTON, BUTTON_HOVER, DOOR_CLOSE_SECONDS, DOOR_OPEN_SECONDS, DOOR_W,
-    CROWD_LIMIT, ENTER_AFTER, ENTER_SECONDS, ENTRY_FADE, EXIT_SECONDS,
+    ENTER_AFTER, ENTER_SECONDS, ENTRY_FADE, EXIT_SECONDS,
     FRONT_CAP, HEADER_BG, HEADER_H,
     LEAVE_UNTIL, LED, PIT_A, PIT_B, PIX, PLATFORM_1, PLATFORM_2, ROOF_H, SIDE_H,
     SIGN_EDGE, STEP_GAP, TRAIN_LEN, VIEW, WALK_SPEED, WALL_FACE, WANDER_RANGE,
@@ -142,7 +143,7 @@ class StationView:
         solid wall and cost more than the whole rest of the frame."""
         if self._crowd_cache is not None:
             return self._crowd_cache
-        room = {-1: CROWD_LIMIT, 1: CROWD_LIMIT}
+        room = {-1: SETTINGS.crowd, 1: SETTINGS.crowd}
         crowd = []
         for passenger, direction in self._waiting_here():
             if room[direction]:

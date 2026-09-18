@@ -77,6 +77,7 @@ WALK_SPEED = 46.0
 DOOR_Y = FAR_BENCH.bottom + 4       # feet y at the door threshold
 EXIT_SECONDS = 0.35                 # stepping out through the doorway
 MAX_STANDING = 22
+AISLE_Y = 152            # floor depth the standing poles are planted at
 
 
 def smoothstep(t: float) -> float:
@@ -489,12 +490,18 @@ class RideView:
             pygame.draw.ellipse(s, OUTLINE, loop.inflate(2, 2))
             pygame.draw.ellipse(s, STRAP, loop)
             pygame.draw.ellipse(s, shade(INTERIOR_WALL, -30), loop.inflate(-2, -2))
-        # Vertical poles, floor to ceiling, with a foot at the bottom.
+        # Vertical poles, planted on the floor out in the aisle rather than
+        # running the whole height of the picture. A shadow and a foot ring at
+        # the base are what make them read as standing on something.
         for px in POLE_XS:
-            pygame.draw.line(s, OUTLINE, (px + 2, ROOF.bottom), (px + 2, NEAR_BENCH.y), 3)
-            pygame.draw.line(s, POLE, (px + 1, ROOF.bottom), (px + 1, NEAR_BENCH.y), 1)
-            pygame.draw.line(s, POLE_DK, (px + 2, ROOF.bottom), (px + 2, NEAR_BENCH.y), 1)
-            pygame.draw.rect(s, POLE_DK, (px - 1, NEAR_BENCH.y - 2, 7, 3))
+            shadow = pygame.Surface((14, 5), pygame.SRCALPHA)
+            pygame.draw.ellipse(shadow, (0, 0, 0, 90), shadow.get_rect())
+            s.blit(shadow, (px - 4, AISLE_Y - 2))
+            pygame.draw.line(s, OUTLINE, (px + 2, ROOF.bottom), (px + 2, AISLE_Y), 3)
+            pygame.draw.line(s, POLE, (px + 1, ROOF.bottom), (px + 1, AISLE_Y), 1)
+            pygame.draw.line(s, POLE_DK, (px + 2, ROOF.bottom), (px + 2, AISLE_Y), 1)
+            pygame.draw.ellipse(s, POLE_DK, (px - 2, AISLE_Y - 3, 9, 5))
+            pygame.draw.ellipse(s, POLE, (px - 1, AISLE_Y - 3, 7, 3))
 
     # -- people --------------------------------------------------------------------------------
 

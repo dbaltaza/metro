@@ -8,9 +8,18 @@ import pygame  # noqa: E402
 import pytest  # noqa: E402
 
 from src.network import build_demo_map  # noqa: E402
+from src.settings import SETTINGS  # noqa: E402
 from src.sim import Simulation, spread_trains  # noqa: E402
 
 FRAME = 1 / 60
+
+
+@pytest.fixture(autouse=True)
+def default_settings():
+    """The settings menu writes to a process-wide object; no test may leak."""
+    SETTINGS.reset()
+    yield
+    SETTINGS.reset()
 
 
 @pytest.fixture
