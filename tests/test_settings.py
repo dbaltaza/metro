@@ -136,3 +136,26 @@ def test_entering_a_station_shows_the_entrance_loader(display, world, metro_map)
     assert swapped_in == "hold", "the scene must be swapped while the walls are shut"
     # Fully covered during the hold, so the swap is never visible.
     assert tr.phase == "open"
+
+
+def test_leaving_a_station_uses_the_same_loader_running_upwards(display, world, metro_map):
+    """Going out should look like coming in, not like a different game."""
+    def frame(ascending):
+        tr = StationTransition(("map",), (255, 214, 90), "Metro de Lisboa",
+                               "back up to the network", metro_map.lines, ascending=ascending)
+        tr.phase, tr.t = "hold", 0.5
+        display.fill((0, 0, 0))
+        tr.draw(display)
+        band = pygame.Rect(display.get_width() // 2 - 200, display.get_height() // 2 - 130, 380, 70)
+        return pygame.image.tostring(display.subsurface(band), "RGB")
+
+    up, down = frame(True), frame(False)
+    assert up != down, "the steps run the same way in and out"
+
+    # Same furniture either way: walls fully shut, name plate and a chip per line.
+    tr = StationTransition(("map",), (255, 214, 90), "Metro de Lisboa",
+                           "back up to the network", metro_map.lines, ascending=True)
+    assert (tr.CLOSE, tr.HOLD, tr.OPEN) == (StationTransition.CLOSE, StationTransition.HOLD, StationTransition.OPEN)
+    assert len(tr.lines) == len(metro_map.lines) == 4
+    tr.phase, tr.t = "hold", 0.5
+    assert tr._coverage() == 1.0

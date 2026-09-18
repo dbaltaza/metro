@@ -757,9 +757,10 @@ class StationTransition(Transition):
     TILE_EDGE = (38, 36, 44)
     SIGN_BG = (26, 38, 76)
 
-    def __init__(self, target, color, title: str, subtitle: str, lines):
+    def __init__(self, target, color, title: str, subtitle: str, lines, ascending: bool = False):
         super().__init__(target, color, title, subtitle)
         self.lines = list(lines)
+        self.ascending = ascending   # steps run the other way on the way out
         self.plate = pygame.font.SysFont("helvetica,arial", 30, bold=True)
         self.tag = pygame.font.SysFont("helvetica,arial", 13, bold=True)
 
@@ -810,6 +811,8 @@ class StationTransition(Transition):
         pygame.draw.rect(screen, (34, 34, 40), band)
         step = 14
         offset = int((self.t * 52) % step)
+        if self.ascending:
+            offset = step - offset
         for y in range(band.y - step + offset, band.bottom, step):
             line = pygame.Rect(band.x, y, band.width, 3)
             clipped = line.clip(band)
@@ -1045,7 +1048,10 @@ def run(sim: Simulation) -> None:
         or ("ride", metro). Moves between the map and a station use the
         sliding doors; stepping on or off a train zooms through its door."""
         if target[0] == "map":
-            return Transition(target, HIGHLIGHT, "Metro de Lisboa", "back to the network")
+            # Coming back out of a station: the same tiled walls as going in,
+            # with the steps running the other way.
+            return StationTransition(target, HIGHLIGHT, "Metro de Lisboa",
+                                     "back up to the network", world.map.lines, ascending=True)
         if target[0] == "station":
             if isinstance(scene, RideView):
                 # Step off onto the platform of the line you were riding, in
