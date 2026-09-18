@@ -20,7 +20,7 @@ from src.sprites import draw_character, shade
 from src.station_layout import (
     IH, IW,
     BOARD, BUTTON, BUTTON_HOVER, DOOR_CLOSE_SECONDS, DOOR_OPEN_SECONDS, DOOR_W,
-    ENTER_AFTER, ENTER_SECONDS, EXIT_SECONDS, FRONT_CAP, HEADER_BG, HEADER_H,
+    CROWD_LIMIT, ENTER_AFTER, ENTER_SECONDS, EXIT_SECONDS, FRONT_CAP, HEADER_BG, HEADER_H,
     LEAVE_UNTIL, LED, PIT_A, PIT_B, PIX, PLATFORM_1, PLATFORM_2, ROOF_H, SIDE_H,
     SIGN_EDGE, STEP_GAP, TRAIN_LEN, VIEW, WALK_SPEED, WALL_FACE, WANDER_RANGE,
     WANDER_SPEED, ease_in, ease_out, exits, render_backdrop,
@@ -33,12 +33,13 @@ from src.station_train import door_xs, draw_train
 class StationView:
     """Inside one station, drawn in three-quarter top-down pixel art."""
 
-    def __init__(self, world: World, sim: Simulation, station_name: str):
+    def __init__(self, world: World, sim: Simulation, station_name: str, line_name: str | None = None):
         self.world = world
         self.sim = sim
         self.name = station_name
         self.lines: list[Line] = lines_serving(world.map, station_name)
-        self.tab = 0
+        # Stepping off a train opens the platform of the line you were on.
+        self.tab = next((i for i, l in enumerate(self.lines) if l.name == line_name), 0)
         self.time = 0.0
         self.walkers: list[dict] = []
         self.arrivals: dict[int, float] = {}
@@ -48,6 +49,7 @@ class StationView:
         self.people: dict[int, dict] = {}
         self.seats_taken: dict[tuple[int, int], int] = {}
         self._waiting_cache: list[tuple[Passenger, int]] | None = None
+        self._crowd_cache: list[tuple[Passenger, int]] | None = None
 
         self.title = pygame.font.SysFont("helvetica,arial", 26, bold=True)
         self.head = pygame.font.SysFont("helvetica,arial", 15, bold=True)
@@ -87,6 +89,7 @@ class StationView:
         self.people.clear()
         self.seats_taken.clear()
         self._waiting_cache = None
+        self._crowd_cache = None
         self._use_backdrop()
 
     def _index(self, station_name: str) -> int:
@@ -116,6 +119,8 @@ class StationView:
         return -1 if self._index(passenger.alight_at) < self._index(self.name) else 1
 
     def _waiting_here(self) -> list[tuple[Passenger, int]]:
+        """Everyone on this platform waiting for this line. The true count,
+        used by the departures board."""
         if self._waiting_cache is not None:
             return self._waiting_cache
         station = self.world.map.stations[self.name]
@@ -126,6 +131,22 @@ class StationView:
                 pairs.append((passenger, direction))
         self._waiting_cache = pairs
         return pairs
+
+    def _crowd(self) -> list[tuple[Passenger, int]]:
+        """The people actually drawn standing on the platform: the longest
+        waiting first, up to what a platform can hold. A busy interchange can
+        have hundreds queued, and drawing them all would stack them into a
+        solid wall and cost more than the whole rest of the frame."""
+        if self._crowd_cache is not None:
+            return self._crowd_cache
+        room = {-1: CROWD_LIMIT, 1: CROWD_LIMIT}
+        crowd = []
+        for passenger, direction in self._waiting_here():
+            if room[direction]:
+                room[direction] -= 1
+                crowd.append((passenger, direction))
+        self._crowd_cache = crowd
+        return crowd
 
     def _train_x(self, metro: Metro) -> float | None:
         centre = IW / 2
@@ -291,7 +312,7 @@ class StationView:
         the doors when a train is about to arrive."""
         alive = set()
         soon = {-1: self._train_soon(-1), 1: self._train_soon(1)}
-        for passenger, direction in self._waiting_here():
+        for passenger, direction in self._crowd():
             alive.add(passenger.id)
             platform = self._platform_for(direction)
             state = self.people.get(passenger.id)
@@ -407,6 +428,7 @@ class StationView:
     def update(self, dt: float, events: list[tuple[str, Passenger, Metro]]) -> None:
         self.time += dt
         self._waiting_cache = None
+        self._crowd_cache = None
         self._track_arrivals()
         # Events first, while the people who just boarded still have their
         # crowd state: their walk to the door starts from where they stand,
@@ -521,7 +543,7 @@ class StationView:
         drawables: list[tuple[float, int, object]] = []
         shown = [w for w in self.walkers if w["line"] == self.line.name]
         walking = {w["passenger"].id for w in shown}
-        for passenger, direction in self._waiting_here():
+        for passenger, direction in self._crowd():
             state = self.people.get(passenger.id)
             if passenger.id in walking or state is None:
                 continue

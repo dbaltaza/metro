@@ -46,14 +46,35 @@ class Look:
             self.cap_color, self.backpack, self.wide = STAFF_BLUE, False, False
 
 
+LOOK_POOL = 512
+
 _looks: dict[int, Look] = {}
 
 
+def look_key(pid: int) -> int:
+    """A bounded stand-in for a person's id. Passenger ids climb into the tens
+    of thousands over a session, so caching appearance against the raw id
+    grows without limit; appearance comes from a fixed pool instead. All
+    staff (negative ids) share one uniform."""
+    return -1 if pid < 0 else pid % LOOK_POOL
+
+
 def look_for(pid: int) -> Look:
-    look = _looks.get(pid)
+    key = look_key(pid)
+    look = _looks.get(key)
     if look is None:
-        look = _looks[pid] = Look(pid)
+        look = _looks[key] = Look(key)
     return look
+
+
+def _evict(cache: dict, limit: int) -> None:
+    """Drop the oldest quarter once a cache is full. Clearing the whole thing
+    instead means a busy scene rebuilds every sprite it is still using, over
+    and over."""
+    if len(cache) <= limit:
+        return
+    for key in list(cache)[:max(len(cache) // 4, 1)]:
+        del cache[key]
 
 
 # --- big characters (station scene) ------------------------------------------------
@@ -169,12 +190,12 @@ def _build_character(pid: int, facing: int, step: int, pose: str = "stand") -> p
 
 
 def character(pid: int, facing: int = 1, step: int = 0, pose: str = "stand") -> pygame.Surface:
-    key = (pid, facing, step, pose)
+    looks = look_key(pid)
+    key = (looks, facing, step, pose)
     sprite = _char_cache.get(key)
     if sprite is None:
-        if len(_char_cache) > 3000:
-            _char_cache.clear()
-        sprite = _char_cache[key] = _build_character(pid, facing, step, pose)
+        _evict(_char_cache, 4000)
+        sprite = _char_cache[key] = _build_character(looks, facing, step, pose)
     return sprite
 
 
@@ -219,8 +240,7 @@ def text(font: pygame.font.Font, string: str, color) -> pygame.Surface:
     key = (id(font), string, tuple(color))
     surface = _text_cache.get(key)
     if surface is None:
-        if len(_text_cache) > 4000:
-            _text_cache.clear()
+        _evict(_text_cache, 4000)
         surface = _text_cache[key] = font.render(string, True, color)
     return surface
 

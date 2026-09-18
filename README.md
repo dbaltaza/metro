@@ -41,7 +41,8 @@ Needs Python 3.12 or newer.
 Three pips beside each station light up as its crowd grows. The panel on the
 right scores the network by average wait and deliveries per minute, has `+`
 and `-` per line to put a train into service or take one out, and logs stalls
-and fleet changes.
+and fleet changes. Run the service too thin and people give up waiting and
+walk out, which the panel counts against you.
 
 **In a station**, both platforms of the line are live: trains pull in, doors
 open, people get off and the queues file in, then the doors close. The signs

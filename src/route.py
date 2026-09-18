@@ -487,7 +487,10 @@ class Panel:
         y = self._text(surface, self.head, "Score", x, y)
         y = self._text(surface, self.body, f"Average wait   {sim.average_wait():.0f}s", x, y + 4)
         y = self._text(surface, self.body, f"Delivered      {sim.delivered_per_minute():.0f} per min", x, y + 2)
-        y = self._text(surface, self.small, f"waiting {sim.waiting_total()}   delivered {sim.delivered}   changes {sim.transfers}", x, y + 2, MUTED) + 10
+        y = self._text(surface, self.small, f"waiting {sim.waiting_total()}   delivered {sim.delivered}   changes {sim.transfers}", x, y + 2, MUTED)
+        # People who ran out of patience and walked out: the cost of a thin service.
+        gave_up_color = (255, 130, 120) if sim.gave_up else MUTED
+        y = self._text(surface, self.small, f"gave up waiting {sim.gave_up}", x, y + 2, gave_up_color) + 10
         y = self._rule(surface, y)
 
         # Fleet: one lever per line.
@@ -560,6 +563,7 @@ class Transition:
         self.color = color
         self.title = title
         self.subtitle = subtitle
+        self.line_name: str | None = None   # which tab a station should open on
         self.t = 0.0
         self.phase = "close"
         self.swapped = False
@@ -828,13 +832,17 @@ def run(sim: Simulation) -> None:
         if target[0] == "map":
             return Transition(target, HIGHLIGHT, "Metro de Lisboa", "back to the network")
         if target[0] == "station":
-            color = world.serving[target[1]][0].color
             if isinstance(scene, RideView):
+                # Step off onto the platform of the line you were riding, in
+                # that line's colour, not whichever line is listed first here.
                 metro = scene.metro
-                return StepTransition(target, color, target[1], "leaving the train",
+                step = StepTransition(target, sim.map.line_named(metro.line).color,
+                                      target[1], "leaving the train",
                                       ride_door(pygame.mouse.get_pos()[0]),
                                       lambda view: platform_door(view, metro))
-            return Transition(target, color, target[1], "entering the station")
+                step.line_name = metro.line
+                return step
+            return Transition(target, world.serving[target[1]][0].color, target[1], "entering the station")
         metro = target[1]
         color = sim.map.line_named(metro.line).color
         if isinstance(scene, StationView):
@@ -884,7 +892,7 @@ def run(sim: Simulation) -> None:
                 if kind == "map":
                     scene = None
                 elif kind == "station":
-                    scene = StationView(world, sim, transition.target[1])
+                    scene = StationView(world, sim, transition.target[1], transition.line_name)
                 else:
                     scene = RideView(world, sim, transition.target[1])
                 transition.swapped = True

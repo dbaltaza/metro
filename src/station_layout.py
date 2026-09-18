@@ -80,6 +80,7 @@ DOOR_FRACTIONS = [0.24, 0.76]
 
 WANDER_SPEED = 13.0
 WANDER_RANGE = (44.0, 9.0)
+CROWD_LIMIT = 44         # people drawn standing on each platform at once
 LED = (255, 172, 64)
 LED_BG = (18, 16, 20)
 EXIT_GREEN = (70, 190, 110)

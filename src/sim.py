@@ -2,7 +2,7 @@
 import random
 
 from src.metro import Metro
-from src.network import Line, Map
+from src.network import Line, Map, Station
 from src.passenger import Passenger
 from src.routing import Leg, plan
 
@@ -12,6 +12,8 @@ INCIDENT_GAP = (45.0, 110.0)
 LOG_LIMIT = 6
 SPAWN_PER_SECOND = 1.3
 MAX_WAITING = 48
+PATIENCE_SECONDS = 150.0   # a platform wait nobody puts up with
+GIVE_UP_SWEEP = 1.0        # how often to check for people who have had enough
 
 
 def spread_trains(metro_map: Map, per_line: int) -> list[Metro]:
@@ -48,12 +50,14 @@ class Simulation:
         self._next_id = 1
         self._routes: dict[tuple[str, str], list[Leg]] = {}
         self.transfers = 0
+        self.gave_up = 0
         # Score inputs and the event log shown in the panel.
         self.wait_total = 0.0
         self.boardings = 0
         self.log: list[tuple[float, str]] = []
         self.incidents = True
         self._next_incident = self.rng.uniform(*INCIDENT_GAP)
+        self._next_sweep = GIVE_UP_SWEEP
         # (kind, passenger, metro) tuples since the last drain, so views can
         # animate what happened without the sim knowing about screens.
         self.events: list[tuple[str, Passenger, Metro]] = []
@@ -84,11 +88,19 @@ class Simulation:
             return
         self._board(metro)
 
+    def _join_platform(self, station: Station, passenger: Passenger) -> None:
+        """Put someone on a platform to wait for their next train. Always
+        admitted: MAX_WAITING only stops new demand being invented at a busy
+        platform, and turning a transfer away would delete a journey the
+        player has already been scored on. PATIENCE_SECONDS is what bounds
+        the queue."""
+        passenger.waited_since = self.clock
+        station.waiting.append(passenger)
+
     def _retire(self, metro: Metro) -> None:
         station = self.map.stations[metro.current_station]
         for passenger in metro.riders:
-            passenger.waited_since = self.clock
-            station.waiting.append(passenger)
+            self._join_platform(station, passenger)
         metro.riders = []
         self.metros.remove(metro)
         self.note(f"Train #{metro.id} taken out of service at {metro.current_station}")
@@ -106,8 +118,7 @@ class Simulation:
                 passenger.legs = passenger.legs[1:]
             if passenger.legs:
                 # Changing lines: back onto the platform for the next leg.
-                passenger.waited_since = self.clock
-                station.waiting.append(passenger)
+                self._join_platform(station, passenger)
                 self.transfers += 1
             else:
                 self.delivered += 1
@@ -129,7 +140,9 @@ class Simulation:
         room = metro.capacity - len(metro.riders)
         boarding: list[Passenger] = []
         for passenger in station.waiting:
-            if not room or passenger.next_line != line.name:
+            if not room:
+                break
+            if passenger.next_line != line.name:
                 continue
             # Only people whose stop on this line lies ahead get on this train.
             if (line.stations.index(passenger.alight_at) - here) * direction > 0:
@@ -139,7 +152,10 @@ class Simulation:
                 self.boardings += 1
         metro.riders.extend(boarding)
         self.events.extend(("board", p, metro) for p in boarding)
-        station.waiting = [p for p in station.waiting if p not in boarding]
+        # By identity: Passenger is a pydantic model, so `p not in boarding`
+        # would deep-compare every field of every pair and cost whole frames.
+        leaving = {id(p) for p in boarding}
+        station.waiting = [p for p in station.waiting if id(p) not in leaving]
 
     def _side_on_arrival(self, metro: Metro) -> int:
         """The platform side a train will occupy at its destination."""
@@ -227,6 +243,22 @@ class Simulation:
         self.log.append((self.clock, text))
         del self.log[:-LOG_LIMIT]
 
+    def _tick_give_ups(self, dt: float) -> None:
+        """People who have waited past all patience walk out of the station.
+        Without this a busy interchange grows without bound, because trains
+        going their way keep arriving full."""
+        self._next_sweep -= dt
+        if self._next_sweep > 0:
+            return
+        self._next_sweep = GIVE_UP_SWEEP
+        cutoff = self.clock - PATIENCE_SECONDS
+        for station in self.map.stations.values():
+            if not station.waiting:
+                continue
+            keeping = [p for p in station.waiting if p.waited_since > cutoff]
+            self.gave_up += len(station.waiting) - len(keeping)
+            station.waiting = keeping
+
     def _tick_incidents(self, dt: float) -> None:
         if not self.incidents:
             return
@@ -248,7 +280,8 @@ class Simulation:
         """Put a new train into service on the first free platform of a line."""
         line = self.map.line_named(line_name)
         taken = {
-            (m.current_station, self.departing_direction(m)) for m in self.metros if m.progress == 0
+            (m.current_station, self.departing_direction(m))
+            for m in self.metros if m.progress == 0 and m.line == line_name
         }
         for station in line.stations:
             for direction in (1, -1):
@@ -279,7 +312,6 @@ class Simulation:
         standing = [m for m in candidates if m.progress == 0]
         if standing:
             metro = min(standing, key=lambda m: len(m.riders))
-            metro.current_station = metro.current_station
             self._retire(metro)
             return metro
         metro = min(candidates, key=lambda m: len(m.riders))
@@ -296,6 +328,7 @@ class Simulation:
     def update(self, dt: float) -> None:
         self.clock += dt
         self._spawn(dt)
+        self._tick_give_ups(dt)
         self._tick_incidents(dt)
         for metro in list(self.metros):
             self._advance(metro, dt)
