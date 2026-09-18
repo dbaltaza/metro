@@ -164,3 +164,26 @@ def test_platform_crowd_has_a_life_and_lines_up_for_the_train(world, sim):
                 lined_up = lined_up or bool(mine)
     assert {"idle", "phone", "wander", "bench", "board", "edge"} <= seen_acts
     assert lined_up
+
+
+def test_boarding_walk_starts_where_the_person_was_standing(world, sim):
+    run_for(sim, 30)
+    view = StationView(world, sim, "Saldanha")
+    checked = 0
+    for _ in range(int(240 / FRAME)):
+        before = {pid: st["pos"] for pid, st in view.people.items()}
+        sim.update(FRAME)
+        events = sim.drain_events()
+        view.update(FRAME, events)
+        for kind, passenger, metro in events:
+            if kind != "board" or metro.current_station != view.name or metro.line != view.line.name:
+                continue
+            if passenger.id not in before:
+                continue
+            walker = next(w for w in view.walkers if w["passenger"] is passenger)
+            start = walker["segments"][0][1]
+            assert start == before[passenger.id], "the walk to the door restarted from the home spot"
+            checked += 1
+        if checked >= 10:
+            return
+    pytest.fail(f"only {checked} boardings checked")

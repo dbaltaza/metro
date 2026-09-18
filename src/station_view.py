@@ -407,8 +407,10 @@ class StationView:
     def update(self, dt: float, events: list[tuple[str, Passenger, Metro]]) -> None:
         self.time += dt
         self._waiting_cache = None
-        self._tick_people(dt)
         self._track_arrivals()
+        # Events first, while the people who just boarded still have their
+        # crowd state: their walk to the door starts from where they stand,
+        # not from their original spot. The crowd tick then drops them.
 
         # Group this frame's events by train and door, so people at the same
         # door take turns instead of piling through at once.
@@ -472,6 +474,7 @@ class StationView:
                 ]
                 self.walkers.append(dict(kind=kind, line=line, passenger=passenger, segments=segments, fade_last=0.5, end=t_in, face=facing_train, train=metro.id))
         self.walkers = [w for w in self.walkers if self.time < w["end"]]
+        self._tick_people(dt)
 
     def _walker_pose(self, walker: dict):
         """Where a walker is right now: (x, y, facing, step, alpha), or None if hidden."""
