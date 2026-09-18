@@ -119,3 +119,35 @@ def test_people_getting_off_walk_out_through_the_door(display, world, sim):
             assert w in ride.walkers
         return
     pytest.fail("nobody got off the train")
+
+
+def test_everyone_is_through_the_door_before_it_closes(world, sim):
+    from src.station_layout import DOOR_CLOSE_SECONDS
+
+    run_for(sim, 10)
+    train = _yellow_train(sim)
+    ride = RideView(world, sim, train)
+    stops_seen = 0
+    for _ in range(int(240 / FRAME)):
+        sim.update(FRAME)
+        events = sim.drain_events()
+        ride.update(FRAME, events)
+        if not any(m is train for _, _, m in events):
+            continue
+        stops_seen += 1
+        close_at = ride.time + train.cooldown - DOOR_CLOSE_SECONDS
+        for w in ride.walkers:
+            if w["fade"]:
+                assert w["t1"] + w["exit"] <= close_at + 1e-6, "someone still getting off as the doors close"
+            else:
+                # Boarding can happen right up to departure; then they just appear.
+                assert w["t0"] <= max(close_at, ride.time) + 1e-6, "someone still getting on as the doors close"
+        # Nobody boards through a door before the last leaver at that door is out.
+        fresh = {p.id for _, p, m in events if m is train}
+        batch = [w for w in ride.walkers if w["passenger"].id in fresh]
+        for door_x in {w["end"][0] for w in batch if w["fade"]}:
+            last_out = max(w["t1"] for w in batch if w["fade"] and w["end"][0] == door_x)
+            for w in batch:
+                if not w["fade"] and w["start"][0] == door_x:
+                    assert w["t0"] >= last_out
+    assert stops_seen >= 5

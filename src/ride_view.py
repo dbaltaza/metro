@@ -182,39 +182,65 @@ class RideView:
         if self.metro not in self.sim.metros:
             return ("station", self.metro.current_station)
         mine = [(kind, passenger) for kind, passenger, metro in events if metro is self.metro]
+        if mine:
+            self._choreograph(mine)
+        self.walkers = [w for w in self.walkers if self.time < w["t1"] + w["exit"]]
+        return None
 
-        # Alighting first, while the leaver still owns a seat: they stand up when
-        # the doors open, walk to the nearest door and step out onto the platform.
-        alighting = 0
+    def _choreograph(self, mine: list[tuple[str, Passenger]]) -> None:
+        """Queue everyone through the nearest door: leavers first, then boarders,
+        one person per STEP_GAP, and squeeze the whole thing so it is over before
+        the doors close, however many people there are."""
+        now = self.time
+        elapsed = DWELL_SECONDS - self.metro.cooldown
+        open_at = now + max(0.0, DOOR_OPEN_SECONDS - elapsed)
+        close_at = now + self.metro.cooldown - DOOR_CLOSE_SECONDS
+
+        # Leavers while they still own a seat, so we know where they stand up from.
+        leavers = []
         for kind, passenger in mine:
             if kind != "alight":
                 continue
             spot = self.seats.pop(passenger.id, None)
-            if spot is None:
-                continue
-            x, y, _ = self.spots[spot]
-            door = min(DOOR_XS, key=lambda d: abs(d - x))
-            t0 = self.time + DOOR_OPEN_SECONDS + alighting * STEP_GAP
-            alighting += 1
-            t1 = t0 + math.hypot(door - x, DOOR_Y - y) / WALK_SPEED
-            self.walkers.append(dict(passenger=passenger, start=(x, y), end=(door, DOOR_Y), t0=t0, t1=t1, fade=True, facing=-1))
-
+            if spot is not None:
+                leavers.append((passenger, self.spots[spot]))
         self._assign_seats()
-        boarding = 0
+        boarders = []
         for kind, passenger in mine:
             if kind != "board":
                 continue
             spot = self.seats.get(passenger.id)
-            if spot is None:
-                continue
-            x, y, facing = self.spots[spot]
-            door = min(DOOR_XS, key=lambda d: abs(d - x))
-            t0 = self.time + DOOR_OPEN_SECONDS + (alighting + boarding) * STEP_GAP + 0.2
-            boarding += 1
-            t1 = t0 + math.hypot(door - x, DOOR_Y - y) / WALK_SPEED
-            self.walkers.append(dict(passenger=passenger, start=(door, DOOR_Y), end=(x, y), t0=t0, t1=t1, fade=False, facing=facing))
-        self.walkers = [w for w in self.walkers if self.time < w["t1"] + (EXIT_SECONDS if w["fade"] else 0.0)]
-        return None
+            if spot is not None:
+                boarders.append((passenger, self.spots[spot]))
+
+        made = []
+        for door in DOOR_XS:
+            t_door = open_at
+            queue = [(p, xyf) for p, xyf in leavers if min(DOOR_XS, key=lambda d: abs(d - xyf[0])) == door]
+            queue.sort(key=lambda item: (abs(item[1][0] - door), item[0].id))
+            for passenger, (x, y, _) in queue:
+                walk = math.hypot(door - x, DOOR_Y - y) / WALK_SPEED
+                t1 = max(t_door, now + walk)
+                made.append(dict(passenger=passenger, start=(x, y), end=(door, DOOR_Y), t0=t1 - walk, t1=t1, fade=True, exit=EXIT_SECONDS, facing=-1))
+                t_door = t1 + STEP_GAP
+            t_door += STEP_GAP  # a beat before people start getting on
+            for passenger, (x, y, facing) in boarders:
+                if min(DOOR_XS, key=lambda d: abs(d - x)) != door:
+                    continue
+                walk = math.hypot(door - x, DOOR_Y - y) / WALK_SPEED
+                made.append(dict(passenger=passenger, start=(door, DOOR_Y), end=(x, y), t0=t_door, t1=t_door + walk, fade=False, exit=0.0, facing=facing))
+                t_door += STEP_GAP
+
+        # Through the door before it closes: last leaver fully out, last boarder in.
+        last = max((w["t1"] + w["exit"] if w["fade"] else w["t0"] + 0.3 for w in made), default=now)
+        if last > close_at and last > now:
+            # k hits 0 only if the doors are already closing: they just appear.
+            k = max((close_at - now) / (last - now), 0.0)
+            for w in made:
+                w["t0"] = now + (w["t0"] - now) * k
+                w["t1"] = now + (w["t1"] - now) * k
+                w["exit"] *= k
+        self.walkers.extend(made)
 
     # -- static interior ----------------------------------------------------------------
 
@@ -379,7 +405,7 @@ class RideView:
             facing = w["facing"] if k < 1 else 1
             if w["fade"] and k >= 1.0:
                 # Through the doorway: keep walking away, up into the door, and fade.
-                out = min((self.time - w["t1"]) / EXIT_SECONDS, 1.0)
+                out = min((self.time - w["t1"]) / max(w["exit"], 1e-6), 1.0)
                 y -= 10 * out
                 alpha = max(0, round(255 * (1 - out)))
                 step = int(self.time * 9) % 2 + 1
