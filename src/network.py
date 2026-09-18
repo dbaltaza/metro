@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 
 from pydantic import BaseModel, Field
+from src.paths import resource
 from src.error import MetroError, StationError
 from src.passenger import Passenger
 
@@ -63,7 +64,7 @@ class Map(BaseModel):
         return lines_at
 
 
-DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+DATA_DIR = resource("data")
 
 
 def load_map(path: str | Path) -> Map:

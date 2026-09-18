@@ -2,13 +2,12 @@
 import math
 from typing import Callable
 
-import os
-
 import pygame
 
 from src import sprites
 from src.metro import Metro
 from src.network import Line, Map, Station
+from src.paths import resource
 from src.sim import Simulation
 from src.sprites import OUTLINE, shade
 
@@ -673,9 +672,9 @@ def run(sim: Simulation) -> None:
     from src.station_view import StationView
 
     pygame.init()
-    icon = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docs", "icon.png")
-    if os.path.exists(icon):
-        pygame.display.set_icon(pygame.image.load(icon))
+    icon = resource("docs", "icon.png")
+    if icon.exists():
+        pygame.display.set_icon(pygame.image.load(str(icon)))
     screen = pygame.display.set_mode((WINDOW_W, WINDOW_H))
     pygame.display.set_caption("Metro Lisboa")
     clock = pygame.time.Clock()

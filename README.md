@@ -18,6 +18,21 @@ python3 -m venv .venv
 
 Needs Python 3.12 or newer.
 
+### Easier ways to launch it
+
+- **Double-click `Metro.command`** (macOS). It sets up the virtual
+  environment the first time and starts the game after that.
+- **Build an app** you can drop into Applications:
+
+  ```
+  tools/build_app.sh
+  ```
+
+  This produces `dist/Metro Lisboa.app` on macOS (a folder with an
+  executable on Linux and Windows), with the map data and icon inside, so it
+  runs without Python installed. The first launch of an unsigned app on macOS
+  needs a right-click, Open.
+
 ## What you can do
 
 **On the map**, hover a station to see who is waiting and click to walk in.
