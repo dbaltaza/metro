@@ -15,7 +15,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.network import build_demo_map          # noqa: E402
 from src.ride_view import RideView              # noqa: E402
-from src.route import WINDOW_H, WINDOW_W, MapScene, World   # noqa: E402
+from src.route import (                      # noqa: E402
+    WINDOW_H, WINDOW_W, MapScene, SettingsMenu, StationTransition, World,
+)
 from src.sim import Simulation, spread_trains   # noqa: E402
 from src.station_view import StationView        # noqa: E402
 
@@ -63,7 +65,23 @@ def main() -> None:
             break
     ride.draw(screen, False, 1.0)
     pygame.image.save(screen, os.path.join(DOCS, "ride.png"))
-    print("wrote docs/map.png, docs/station.png, docs/ride.png")
+
+    # The entrance loader, held open at the point where it is fully covered.
+    serving = world.serving["Alameda"]
+    loader = StationTransition(("station", "Alameda"), serving[0].color, "Alameda",
+                               "walking down to the platform", serving)
+    loader.phase, loader.t = "hold", loader.HOLD * 0.55
+    loader.draw(screen)
+    pygame.image.save(screen, os.path.join(DOCS, "loading.png"))
+
+    # The settings menu over the map.
+    MapScene(world, sim).draw(screen, False, 1.0)
+    menu = SettingsMenu()
+    menu.open = True
+    menu.row = 0
+    menu.draw(screen)
+    pygame.image.save(screen, os.path.join(DOCS, "settings.png"))
+    print("wrote map.png, station.png, ride.png, loading.png and settings.png in docs/")
 
 
 if __name__ == "__main__":
