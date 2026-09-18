@@ -56,3 +56,29 @@ def test_score_is_computed(sim):
     assert sim.boardings > 0
     assert 0 < sim.average_wait() < 300
     assert sim.delivered_per_minute() > 0
+
+
+def test_step_transition_zooms_through_the_door_and_swaps_in_the_dark(display):
+    from src.route import StepTransition, Transition
+
+    tr = StepTransition(("ride", None), (240, 178, 24), "Train #1", "mind the gap", (300, 400), lambda scene: (scene, 20))
+    assert isinstance(tr, Transition)
+    display.fill((90, 120, 150))
+    swapped_at = None
+    t = 0.0
+    while True:
+        done = tr.update(1 / 60)
+        t += 1 / 60
+        if tr.wants_swap():
+            tr.swapped = True
+            tr.scene = 640
+            swapped_at = tr.phase
+        tr.draw(display)
+        if tr.phase == "hold":
+            # Fully dark while the scene is swapped underneath.
+            assert display.get_at((640, 100))[:3] == (8, 8, 10)
+        if done:
+            break
+    assert swapped_at == "hold"
+    assert tr._resolved_focus_in() == (640, 20)
+    assert abs(t - (tr.CLOSE + tr.HOLD + tr.OPEN)) < 0.05

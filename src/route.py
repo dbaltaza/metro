@@ -618,6 +618,88 @@ class Transition:
         pygame.draw.rect(screen, self.color, (bar.x, bar.y, round(bar.width * fill), bar.height), border_radius=3)
 
 
+class StepTransition(Transition):
+    """Stepping through a train door. The view rushes into the door and goes
+    dark, a beat with the door chime, then the new scene pulls back from its
+    own door. Used between a platform and the inside of a train."""
+
+    CLOSE, HOLD, OPEN = 0.42, 0.5, 0.55
+    ZOOM_IN = 2.4      # how far the old view rushes into the door
+    ZOOM_OUT = 1.35    # how far the new view starts zoomed before settling
+    CHIME = (255, 196, 60)
+
+    def __init__(self, target, color, title: str, subtitle: str, focus_out, focus_in):
+        super().__init__(target, color, title, subtitle)
+        self.focus_out = focus_out          # screen point of the door being entered
+        self.focus_in = focus_in            # screen point, or a callable(scene) -> point
+        self.snapshot: pygame.Surface | None = None
+        self.scene = None                   # the new scene, set by the loop at swap
+
+    def _coverage(self) -> float:
+        # Kept for anything that reads it; the step draws its own phases.
+        return 1.0 if self.phase == "hold" else 0.0
+
+    @staticmethod
+    def _zoomed(screen: pygame.Surface, frame: pygame.Surface, focus, zoom: float) -> None:
+        """Blit frame scaled by zoom so that the focus point stays put."""
+        w, h = round(WINDOW_W * zoom), round(WINDOW_H * zoom)
+        fx, fy = focus
+        screen.blit(pygame.transform.scale(frame, (w, h)), (round(fx - fx * zoom), round(fy - fy * zoom)))
+
+    def _dim(self, screen: pygame.Surface, amount: float) -> None:
+        if amount <= 0:
+            return
+        veil = pygame.Surface((WINDOW_W, WINDOW_H))
+        veil.fill((8, 8, 10))
+        veil.set_alpha(round(255 * min(amount, 1.0)))
+        screen.blit(veil, (0, 0))
+
+    def _resolved_focus_in(self):
+        if callable(self.focus_in):
+            return self.focus_in(self.scene) if self.scene is not None else (WINDOW_W / 2, WINDOW_H / 2)
+        return self.focus_in
+
+    def draw(self, screen: pygame.Surface) -> None:
+        if self.phase == "close":
+            if self.snapshot is None:
+                self.snapshot = screen.copy()
+            k = min(self.t / self.CLOSE, 1.0)
+            ease = k * k * k
+            self._zoomed(screen, self.snapshot, self.focus_out, 1 + (self.ZOOM_IN - 1) * ease)
+            self._dim(screen, k * k * 1.15)
+            return
+        if self.phase == "hold":
+            screen.fill((8, 8, 10))
+            self._caption(screen, self.t / self.HOLD)
+            return
+        k = 1 - min(self.t / self.OPEN, 1.0)
+        ease = k * k
+        frame = screen.copy()
+        self._zoomed(screen, frame, self._resolved_focus_in(), 1 + (self.ZOOM_OUT - 1) * ease)
+        self._dim(screen, ease * 1.3)
+        if k > 0.55:
+            self._caption(screen, 1.0, fade=(k - 0.55) / 0.45)
+
+    def _caption(self, screen: pygame.Surface, progress: float, fade: float = 1.0) -> None:
+        cx, cy = WINDOW_W // 2, WINDOW_H // 2 + 40
+        title = sprites.text(self.big, self.title, TEXT)
+        sub = sprites.text(self.small, self.subtitle, MUTED)
+        if fade < 1.0:
+            title = title.copy(); title.set_alpha(round(255 * fade))
+            sub = sub.copy(); sub.set_alpha(round(255 * fade))
+        screen.blit(title, title.get_rect(center=(cx, cy)))
+        screen.blit(sub, sub.get_rect(center=(cx, cy + 34)))
+        # The door chime: three lamps lighting up one after another.
+        for i in range(3):
+            lit = progress * 3 >= i + 0.5
+            color = self.CHIME if lit else self.DOOR_EDGE
+            if fade < 1.0 and not lit:
+                continue
+            pygame.draw.circle(screen, color, (cx - 22 + i * 22, cy - 46), 5)
+            if lit:
+                pygame.draw.circle(screen, (255, 240, 190), (cx - 22 + i * 22, cy - 46), 2)
+
+
 class MapScene:
     """The network overview. Hover to preview a station, click to enter it."""
 
@@ -683,15 +765,41 @@ def run(sim: Simulation) -> None:
     scene = None  # None is the map; otherwise a StationView or RideView
     transition: Transition | None = None
 
+    from src.ride_view import DOOR_XS, FAR_WALL
+    from src.station_layout import IW, ROOF_H, SIDE_H, VIEW
+
+    def ride_door(near_x: float | None = None) -> tuple[float, float]:
+        """Screen point of the car door nearest to near_x in the ride view."""
+        xs = [d * PIX for d in DOOR_XS]
+        x = min(xs, key=lambda v: abs(v - (WINDOW_W / 2 if near_x is None else near_x)))
+        return (x, VIEW.y + FAR_WALL.centery * PIX)
+
+    def platform_door(view, metro) -> tuple[float, float]:
+        """Screen point of the train's doors as seen from the platform."""
+        x = view._train_x(metro)
+        pit = view._pit_for(view._side(metro))
+        return ((IW / 2 if x is None else x) * PIX, VIEW.y + (pit.top + ROOF_H + SIDE_H / 2) * PIX)
+
     def go(target) -> Transition:
-        """Start the doors transition towards a target: ("map",),
-        ("station", name) or ("ride", metro)."""
+        """Start a transition towards a target: ("map",), ("station", name)
+        or ("ride", metro). Moves between the map and a station use the
+        sliding doors; stepping on or off a train zooms through its door."""
         if target[0] == "map":
             return Transition(target, HIGHLIGHT, "Metro de Lisboa", "back to the network")
         if target[0] == "station":
-            return Transition(target, world.serving[target[1]][0].color, target[1], "entering the station")
+            color = world.serving[target[1]][0].color
+            if isinstance(scene, RideView):
+                metro = scene.metro
+                return StepTransition(target, color, target[1], "leaving the train",
+                                      ride_door(pygame.mouse.get_pos()[0]),
+                                      lambda view: platform_door(view, metro))
+            return Transition(target, color, target[1], "entering the station")
         metro = target[1]
-        return Transition(target, sim.map.line_named(metro.line).color, f"Train #{metro.id}", "mind the gap")
+        color = sim.map.line_named(metro.line).color
+        if isinstance(scene, StationView):
+            return StepTransition(target, color, f"Train #{metro.id}", "mind the gap",
+                                  pygame.mouse.get_pos(), ride_door())
+        return Transition(target, color, f"Train #{metro.id}", "mind the gap")
 
     paused = False
     speed = 1.0
@@ -739,6 +847,8 @@ def run(sim: Simulation) -> None:
                 else:
                     scene = RideView(world, sim, transition.target[1])
                 transition.swapped = True
+                if isinstance(transition, StepTransition):
+                    transition.scene = scene
             if transition.update(dt):
                 transition = None
 
