@@ -1,0 +1,40 @@
+name: release
+
+# Pushing a tag like v1.0.0 builds the macOS app and publishes a GitHub
+# release with it attached, using the notes for that version in CHANGELOG.md.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  macos-app:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build the app
+        run: tools/build_app.sh
+      - name: Zip it
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          ditto -c -k --keepParent "dist/Metro Lisboa.app" "dist/Metro-Lisboa-${VERSION}-macOS.zip"
+      - name: Release notes for this version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk -v v="$VERSION" '
+            /^## / { on = index($0, "## " v) == 1; next }
+            on { print }
+          ' CHANGELOG.md > notes.md
+          cat notes.md
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Metro Lisboa ${{ github.ref_name }}
+          body_path: notes.md
+          files: dist/Metro-Lisboa-*-macOS.zip
