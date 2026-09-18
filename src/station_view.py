@@ -8,6 +8,7 @@ import random
 import pygame
 
 from src import sprites
+from src.audio import AUDIO
 from src.metro import Metro
 from src.network import Line
 from src.passenger import Passenger
@@ -45,6 +46,10 @@ class StationView:
         self.time = 0.0
         self.walkers: list[dict] = []
         self.arrivals: dict[int, float] = {}
+        # Trains whose chime and whose closing warning have already sounded.
+        self.chimed: set[int] = set()
+        self.warned: set[int] = set()
+        self.silent = True      # nothing sounds on the frame you walk in
         self.hover = None
         self.mouse = (0, 0)
         self.labels: list[tuple[pygame.Surface, tuple[float, float]]] = []
@@ -225,6 +230,7 @@ class StationView:
                     return ("ride", metro)
             for i, rect in enumerate(self.tab_rects):
                 if rect.collidepoint(event.pos):
+                    AUDIO.play("click", 0.6)
                     self.switch_line(i)
         return None
 
@@ -450,8 +456,30 @@ class StationView:
             if metro.current_station == self.name and metro.cooldown > 0:
                 if metro.id not in self.arrivals:
                     self.arrivals[metro.id] = self.time - (DWELL_SECONDS - metro.cooldown)
-            else:
-                self.arrivals.pop(metro.id, None)
+                    self.chimed.discard(metro.id)
+                    self.warned.discard(metro.id)
+                    self._sound("arrive")
+                if metro.id not in self.chimed and self._door_state(metro) >= 0.98:
+                    self.chimed.add(metro.id)
+                    self._sound("chime", 0.7)
+                if metro.id not in self.warned and metro.cooldown <= DOOR_CLOSE_SECONDS:
+                    self.warned.add(metro.id)
+                    self._sound("doors", 0.8)
+            elif self.arrivals.pop(metro.id, None) is not None:
+                self.chimed.discard(metro.id)
+                self.warned.discard(metro.id)
+                self._sound("depart", 0.8)
+        self.silent = False
+
+    def _sound(self, name: str, volume: float = 1.0) -> None:
+        """Quiet on the first frame: walking onto a platform with two trains
+        standing at it should not sound like both have just pulled in."""
+        if not self.silent:
+            AUDIO.play(name, volume)
+
+    def ambience(self) -> dict[str, float]:
+        """A platform sounds like the number of people standing on it."""
+        return {"murmur": min(len(self._waiting_here()) / 90, 1.0) * 0.85 + 0.1}
 
     def _walk_time(self, a: tuple[float, float], b: tuple[float, float]) -> float:
         return max(math.hypot(b[0] - a[0], b[1] - a[1]) / WALK_SPEED, 0.15)

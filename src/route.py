@@ -5,6 +5,7 @@ from typing import Callable
 import pygame
 
 from src import sprites
+from src.audio import AUDIO
 from src.daytime import clock_text, demand_at, hour_of, period_at
 from src.metro import Metro
 from src.network import Line, Map, Station
@@ -1003,11 +1004,13 @@ class SettingsMenu:
                 step = 1 if event.key == pygame.K_RIGHT else -1
                 i = (choice_index(field) + step) % len(choices)
                 setattr(SETTINGS, field, choices[i][1])
+                AUDIO.play("click", 0.6)
             return True
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             for rect, field, value in self.chips:
                 if rect.collidepoint(event.pos):
                     setattr(SETTINGS, field, value)
+                    AUDIO.play("click", 0.6)
                     self.row = [o[0] for o in OPTIONS].index(field)
                     return True
             if not self.rect.collidepoint(event.pos):
@@ -1201,10 +1204,15 @@ class MapScene:
                 return self.world.station_at(event.pos, camera)
         return None
 
+    def ambience(self) -> dict[str, float]:
+        """Up on the network map you are nowhere in particular, so nothing."""
+        return {}
+
     def _panel_click(self, pos: Vector) -> None:
         action = self.panel.click(pos)
         if action is None:
             return
+        AUDIO.play("click", 0.6)
         kind, line = action
         if kind == "add":
             self.sim.add_train(line)
@@ -1281,6 +1289,7 @@ def run(sim: Simulation) -> None:
     from src.station_view import StationView
 
     pygame.init()
+    AUDIO.start()
     icon = resource("docs", "icon.png")
     if icon.exists():
         pygame.display.set_icon(pygame.image.load(str(icon)))
@@ -1370,6 +1379,11 @@ def run(sim: Simulation) -> None:
 
         # Simulation and the scenes' animations run on scaled time, so the
         # boarding choreography keeps pace with the trains at any speed.
+        # The beds follow whichever scene you are in, and go on fading while
+        # the game is paused so silence arrives when you expect it to.
+        AUDIO.beds((scene or map_scene).ambience() if transition is None else {})
+        AUDIO.update(dt)
+
         sim_dt = 0.0 if (paused or menu.open) else dt * speed
         sim.update(sim_dt)
         events = sim.drain_events()
@@ -1404,4 +1418,5 @@ def run(sim: Simulation) -> None:
         menu.draw(screen)
         pygame.display.flip()
 
+    AUDIO.stop()
     pygame.quit()

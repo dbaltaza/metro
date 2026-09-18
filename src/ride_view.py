@@ -9,6 +9,7 @@ import random
 import pygame
 
 from src import sprites
+from src.audio import AUDIO
 from src.metro import Metro
 from src.passenger import Passenger
 from src.route import HIGHLIGHT, MUTED, PANEL_BG, PANEL_EDGE, TEXT, WINDOW_H, WINDOW_W, World
@@ -116,6 +117,7 @@ class RideView:
         self.interior = self._render_interior()
         self.openings = self._openings()
         self._assign_seats()   # everyone already aboard is visible from the first frame
+        self.dwelt = self._dwelling()   # so the doors only sound when they move
 
     def _openings(self) -> list[pygame.Rect]:
         """Door and window rectangles in the far wall, where the outside shows."""
@@ -210,7 +212,22 @@ class RideView:
         else:
             self._assign_seats()
         self.walkers = [w for w in self.walkers if self.time < w["t1"] + w["exit"]]
+        self._listen()
         return None
+
+    def _listen(self) -> None:
+        """The doors of the car you are standing in, from the inside."""
+        dwelling = self._dwelling()
+        if dwelling != self.dwelt:
+            self.dwelt = dwelling
+            if self.time > 0.2:      # not on the frame you step aboard
+                AUDIO.play("chime" if dwelling else "doors", 0.75)
+
+    def ambience(self) -> dict[str, float]:
+        """Rolling, or standing at a platform with the doors open."""
+        if self._dwelling():
+            return {"roll": 0.15, "murmur": 0.35}
+        return {"roll": 0.85}
 
     def _choreograph(self, mine: list[tuple[str, Passenger]]) -> None:
         """Queue everyone through the nearest door: leavers first, then boarders,

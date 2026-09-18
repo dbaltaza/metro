@@ -92,6 +92,12 @@ and you can get off at any stop.
 
 ![Riding a train](docs/ride.png)
 
+**Listen to it.** Trains rumble in and pull out, the doors chime open and beep
+shut, and a platform murmurs in proportion to the number of people standing on
+it. None of it is a recording: every sound is worked out from arithmetic when
+the game starts, so there is nothing to ship alongside the code. Turn it down
+or off in the settings.
+
 **Change how it plays.** `S` opens the settings over whatever is on screen and
 pauses the game while they are open.
 
@@ -123,6 +129,8 @@ pauses the game while they are open.
   over a graph of (station, line) states so changing costs something.
 - `src/daytime.py` is the hour of the day: how busy the network is at it and
   which way the city is travelling.
+- `src/audio.py` synthesises every sound in the game at startup and keeps the
+  looping backgrounds sliding to the level the scene on screen asks for.
 - `src/sim.py` moves the trains, keeps them a safe headway apart, spawns
   passengers, and handles boarding, changes, stalls, the fleet and the score.
   It knows nothing about screens: scenes read its state and drain its events.
@@ -153,13 +161,14 @@ regenerates the pictures above. `tools/build_app.sh` packages the app.
 .venv/bin/python -m pytest -q
 ```
 
-A hundred and thirty-three tests, running headless in a couple of seconds each. They cover the
+A hundred and forty-four tests, running headless in a couple of seconds each. They cover the
 rules that are easy to break by accident: people only board trains going their
 way, everyone is through the doors before they close, countdowns that never
 jump backwards, no two trains on one segment or one platform, nothing standing
 in a doorway, platform queues that stay bounded over a long session, a drag of
 the map that never turns into walking into a station, no two stations next to
-each other clad the same, and every scene rendering without raising. GitHub Actions runs them on every push, and a
+each other clad the same, sounds that come out at the length they were drawn
+at, and every scene rendering without raising. GitHub Actions runs them on every push, and a
 tagged release builds the macOS app.
 
 ## License

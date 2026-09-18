@@ -3,6 +3,9 @@
 import os
 
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+# A mixer that goes nowhere, so the sounds can be built and measured on a
+# machine with no sound card and without anything actually making a noise.
+os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 
 import pygame  # noqa: E402
 import pytest  # noqa: E402

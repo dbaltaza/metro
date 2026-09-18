@@ -13,6 +13,7 @@ class Settings(BaseModel):
     incidents: bool = Field(default=True, description="whether trains ever stall")
     patience: float = Field(default=150.0, description="seconds before someone gives up waiting")
     crowd: int = Field(default=44, description="people drawn on each platform at once")
+    sound: float = Field(default=0.5, ge=0.0, le=1.0, description="how loud the game is, 0 for silence")
 
     def reset(self) -> None:
         for name, field in type(self).model_fields.items():
@@ -33,6 +34,9 @@ OPTIONS: list[tuple[str, str, list[tuple[str, object]], str]] = [
     ("crowd", "Platform crowd",
      [("Sparse", 24), ("Normal", 44), ("Packed", 64)],
      "how many are drawn standing on a platform"),
+    ("sound", "Sound",
+     [("Off", 0.0), ("Quiet", 0.5), ("Full", 1.0)],
+     "chimes, trains and the crowd on the platform"),
 ]
 
 SETTINGS = Settings()
