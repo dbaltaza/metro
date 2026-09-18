@@ -43,14 +43,23 @@ TUNNEL = (36, 34, 40)
 TUNNEL_RING = (28, 26, 32)
 PIPE = (70, 66, 74)
 LAMP = (255, 236, 180)
-INTERIOR_WALL = (214, 216, 220)
-INTERIOR_LINE = (160, 164, 172)
-SEAT = (52, 84, 156)
-SEAT_HI = (84, 118, 190)
-CAR_FLOOR_A = (126, 122, 114)
-CAR_FLOOR_B = (118, 114, 106)
-POLE = (196, 200, 206)
-CEILING_LIGHT = (255, 246, 214)
+INTERIOR_WALL = (222, 224, 229)
+INTERIOR_LINE = (166, 170, 178)
+SEAT = (44, 74, 150)
+SEAT_HI = (86, 120, 196)
+SEAT_DK = (26, 44, 96)
+PRIORITY = (168, 72, 60)          # priority seats, marked with a pictogram
+PRIORITY_HI = (206, 112, 96)
+CAR_FLOOR_A = (62, 64, 74)        # dark studded flooring, not station tile
+CAR_FLOOR_B = (56, 58, 68)
+FLOOR_RIB = (48, 50, 60)
+DOOR_MAT = (198, 168, 58)         # yellow mat where you step on and off
+POLE = (206, 210, 218)
+POLE_DK = (138, 142, 150)
+STRAP = (210, 212, 218)
+CEILING = (238, 240, 244)
+CEILING_LIGHT = (255, 250, 226)
+AD_PANEL = (206, 210, 218)
 
 WALK_SPEED = 46.0
 DOOR_Y = FAR_BENCH.bottom + 4       # feet y at the door threshold
@@ -248,25 +257,32 @@ class RideView:
     # -- static interior ----------------------------------------------------------------
 
     def _render_interior(self) -> pygame.Surface:
-        """Everything that never moves: floor, benches, near wall, skirt."""
+        """Everything that never moves: flooring, seats, near wall, skirt."""
         s = pygame.Surface((IW, IH), 0, 24)
         s.fill(CAR_FLOOR_A)
-        pygame.draw.rect(s, GROUT, FLOOR)
-        tile = 12
-        for ty in range(FLOOR.y, FLOOR.bottom, tile):
-            for tx in range(0, IW, tile):
-                color = CAR_FLOOR_A if ((tx // tile + ty // tile) % 2 == 0) else CAR_FLOOR_B
-                pygame.draw.rect(s, color, (tx, ty, tile - 1, min(tile - 1, FLOOR.bottom - ty)))
-        for bench in (FAR_BENCH, NEAR_BENCH):
-            pygame.draw.rect(s, shade(CAR_FLOOR_B, -30), bench)
-            for x in range(6, IW - 12, 24):
-                if bench is FAR_BENCH and any(abs(x + 9 - d) < DOOR_W / 2 + 8 for d in DOOR_XS):
-                    continue
-                box(s, pygame.Rect(x, bench.y + 3, 20, bench.height - 6), SEAT)
-                pygame.draw.line(s, SEAT_HI, (x, bench.y + 3), (x + 19, bench.y + 3))
+
+        # Floor: dark studded rubber, run lengthwise, with a yellow mat at each
+        # doorway the way the real cars have.
+        pygame.draw.rect(s, CAR_FLOOR_A, FLOOR)
+        for y in range(FLOOR.y, FLOOR.bottom, 6):
+            pygame.draw.line(s, CAR_FLOOR_B, (0, y), (IW, y))
+        for y in range(FLOOR.y + 3, FLOOR.bottom, 12):
+            pygame.draw.line(s, FLOOR_RIB, (0, y), (IW, y))
+        for dx in DOOR_XS:
+            mat = pygame.Rect(dx - DOOR_W // 2 - 6, FAR_BENCH.bottom, DOOR_W + 12, 10)
+            pygame.draw.rect(s, DOOR_MAT, mat)
+            pygame.draw.rect(s, shade(DOOR_MAT, -50), (mat.x, mat.bottom - 2, mat.width, 2))
+            for hx in range(mat.x + 2, mat.right - 2, 4):
+                pygame.draw.rect(s, shade(DOOR_MAT, -28), (hx, mat.y + 3, 2, 4))
+
+        self._draw_bench(s, FAR_BENCH, far=True)
+        self._draw_bench(s, NEAR_BENCH, far=False)
+
         # Near wall: interior panel, then the car's outside skirt below it.
         pygame.draw.rect(s, INTERIOR_WALL, NEAR_WALL)
         pygame.draw.line(s, INTERIOR_LINE, (0, NEAR_WALL.y), (IW, NEAR_WALL.y))
+        for x in range(0, IW, 96):      # panel seams
+            pygame.draw.line(s, shade(INTERIOR_WALL, -14), (x, NEAR_WALL.y + 2), (x, NEAR_WALL.bottom - 5))
         pygame.draw.rect(s, shade(INTERIOR_WALL, -24), (0, NEAR_WALL.bottom - 4, IW, 4))
         pygame.draw.rect(s, SILVER, SKIRT_BAND)
         pygame.draw.line(s, SILVER_HI, (0, SKIRT_BAND.y), (IW, SKIRT_BAND.y))
@@ -278,6 +294,31 @@ class RideView:
         for px_, py_ in ((1, 0), (1, 1), (1, 2), (4, 0), (4, 1), (4, 2), (2, 1), (3, 1)):
             s.set_at((lx + px_, ly + py_), (250, 250, 250))
         return s
+
+    def _draw_bench(self, s: pygame.Surface, bench: pygame.Rect, far: bool) -> None:
+        """A run of moulded seats along the side of the car: a dark frame, a
+        blue pad per seat with a divider between, and priority seats in red
+        nearest the doors."""
+        pygame.draw.rect(s, shade(INTERIOR_WALL, -46), bench)
+        pygame.draw.line(s, shade(INTERIOR_WALL, -70), (0, bench.bottom - 1), (IW, bench.bottom - 1))
+        seat_w, gap = 22, 2
+        for x in range(6, IW - seat_w, seat_w + gap):
+            centre = x + seat_w / 2
+            if far and any(abs(centre - d) < DOOR_W / 2 + 10 for d in DOOR_XS):
+                continue
+            # The seats flanking a doorway are the priority ones.
+            near_door = min(abs(centre - d) for d in DOOR_XS) < DOOR_W / 2 + 34
+            pad, hi = (PRIORITY, PRIORITY_HI) if near_door else (SEAT, SEAT_HI)
+            seat = pygame.Rect(x, bench.y + 2, seat_w, bench.height - 5)
+            pygame.draw.rect(s, SEAT_DK, seat.inflate(2, 2), border_radius=2)
+            pygame.draw.rect(s, pad, seat, border_radius=2)
+            pygame.draw.line(s, hi, (seat.x + 1, seat.y + 1), (seat.right - 2, seat.y + 1))
+            pygame.draw.line(s, shade(pad, -40), (seat.x + 1, seat.bottom - 2), (seat.right - 2, seat.bottom - 2))
+            # A dip in the middle of the pad, so it reads as a moulded shell.
+            pygame.draw.line(s, shade(pad, -22), (seat.centerx, seat.y + 2), (seat.centerx, seat.bottom - 3))
+            if near_door:
+                pygame.draw.rect(s, (245, 245, 250), (seat.centerx - 3, seat.y + 4, 2, 2))
+                pygame.draw.rect(s, (245, 245, 250), (seat.centerx - 3, seat.y + 7, 2, 3))
 
     # -- outside: tunnel and platforms --------------------------------------------------
 
@@ -359,8 +400,13 @@ class RideView:
         pygame.draw.rect(s, shade(INTERIOR_WALL, -20), (0, FAR_WALL.bottom - 3, IW, 3))
         for win in windows:
             s.blit(outside, win.topleft, pygame.Rect(win.x, win.y - OUTSIDE.y, win.width, win.height))
-            pygame.draw.rect(s, OUTLINE, win, 1)
-            pygame.draw.line(s, shade(GLASS_PANE, 70), (win.x + 2, win.y + 2), (win.x + 12, win.y + 2))
+            # A rubber gasket, a silver frame and a sill, so the glass reads as
+            # glass rather than a hole cut in the wall.
+            pygame.draw.rect(s, SILVER_LO, win.inflate(4, 4), 2, border_radius=2)
+            pygame.draw.rect(s, OUTLINE, win.inflate(2, 2), 1, border_radius=2)
+            pygame.draw.rect(s, shade(INTERIOR_WALL, -30), (win.x - 2, win.bottom + 2, win.width + 4, 2))
+            pygame.draw.line(s, shade(GLASS_PANE, 70), (win.x + 2, win.y + 2), (win.x + 14, win.y + 2))
+            pygame.draw.line(s, shade(GLASS_PANE, 40), (win.x + 2, win.y + 4), (win.x + 9, win.y + 4))
         for door in openings:
             slide = round(open_k * (DOOR_W / 2 - 1))
             s.blit(outside, door.topleft, pygame.Rect(door.x, door.y - OUTSIDE.y, door.width, door.height))
@@ -376,10 +422,67 @@ class RideView:
                 pygame.draw.line(s, OUTLINE, (leaf.x, leaf.y), (leaf.x, leaf.bottom - 1))
                 pygame.draw.line(s, OUTLINE, (leaf.right - 1, leaf.y), (leaf.right - 1, leaf.bottom - 1))
             pygame.draw.rect(s, OUTLINE, door.inflate(2, 0), 1)
-        # Ceiling strip with the lights.
-        pygame.draw.rect(s, (52, 54, 60), ROOF)
-        for x in range(20, IW - 20, 90):
-            pygame.draw.rect(s, CEILING_LIGHT, (x, ROOF.y + 6, 50, 3))
+            # Door call button and the red emergency intercom beside it.
+            lit = (120, 230, 140) if open_k > 0.5 else (60, 110, 74)
+            bx = door.right + 4
+            pygame.draw.rect(s, OUTLINE, (bx - 1, door.y + 15, 6, 8))
+            pygame.draw.rect(s, shade(INTERIOR_WALL, -30), (bx, door.y + 16, 4, 6))
+            pygame.draw.rect(s, lit, (bx + 1, door.y + 17, 2, 2))
+            pygame.draw.rect(s, OUTLINE, (bx - 1, door.y + 26, 6, 7))
+            pygame.draw.rect(s, ML_RED, (bx, door.y + 27, 4, 5))
+        # Advertising panels and the route strip above the windows, which is
+        # what fills the band between the glass and the ceiling in a real car.
+        band = pygame.Rect(0, FAR_WALL.y, IW, 9)
+        pygame.draw.rect(s, shade(INTERIOR_WALL, 10), band)
+        pygame.draw.line(s, self.line.color, (0, band.bottom - 2), (IW, band.bottom - 2), 2)
+        stops = self.line.stations
+        here = stops.index(self.metro.current_station)
+        for i, x in enumerate(range(24, IW - 20, 58)):
+            panel = pygame.Rect(x, band.y + 1, 46, 5)
+            pygame.draw.rect(s, AD_PANEL, panel)
+            pygame.draw.rect(s, shade(AD_PANEL, -34), panel, 1)
+            # Dots along the strip stand for the stops, the current one filled.
+            stop = i - len(range(24, IW - 20, 58)) // 2 + here
+            if 0 <= stop < len(stops):
+                dot = (panel.centerx, band.bottom - 2)
+                pygame.draw.circle(s, (250, 250, 252), dot, 2)
+                if stop == here:
+                    pygame.draw.circle(s, ML_RED, dot, 2)
+
+        # Ceiling: pale panels with a warm light running down the middle.
+        pygame.draw.rect(s, CEILING, ROOF)
+        pygame.draw.rect(s, shade(CEILING, -26), (0, ROOF.bottom - 2, IW, 2))
+        pygame.draw.rect(s, CEILING_LIGHT, (0, ROOF.y + 3, IW, 5))
+        pygame.draw.line(s, (255, 255, 244), (0, ROOF.y + 4), (IW, ROOF.y + 4))
+        for x in range(0, IW, 74):      # seams between ceiling panels
+            pygame.draw.line(s, shade(CEILING, -20), (x, ROOF.y), (x, ROOF.y + 2))
+            pygame.draw.line(s, shade(CEILING, -20), (x, ROOF.y + 8), (x, ROOF.bottom - 2))
+
+    def _draw_fittings(self, s: pygame.Surface) -> None:
+        """Grab rails and hanging straps, in front of the wall and behind the
+        people. Every Lisbon car has a rail down the length with straps on it
+        and floor-to-ceiling poles by the doors."""
+        rail_y = ROOF.bottom + 3
+        pygame.draw.line(s, POLE_DK, (0, rail_y + 1), (IW, rail_y + 1), 2)
+        pygame.draw.line(s, POLE, (0, rail_y), (IW, rail_y), 1)
+        # Straps: a short hanger and a loop, swaying with the car.
+        swing = math.sin(self.time * 2.2) * 1.6 if not self._dwelling() else 0.0
+        for i, x in enumerate(range(34, IW - 20, 46)):
+            lean = round(swing * (1 if i % 2 else -1))
+            top = (x, rail_y + 2)
+            bottom = (x + lean, rail_y + 13)
+            pygame.draw.line(s, OUTLINE, (top[0] + 1, top[1]), (bottom[0] + 1, bottom[1]), 1)
+            pygame.draw.line(s, STRAP, top, bottom, 1)
+            loop = pygame.Rect(bottom[0] - 3, bottom[1], 6, 7)
+            pygame.draw.ellipse(s, OUTLINE, loop.inflate(2, 2))
+            pygame.draw.ellipse(s, STRAP, loop)
+            pygame.draw.ellipse(s, shade(INTERIOR_WALL, -30), loop.inflate(-2, -2))
+        # Vertical poles, floor to ceiling, with a foot at the bottom.
+        for px in POLE_XS:
+            pygame.draw.line(s, OUTLINE, (px + 2, ROOF.bottom), (px + 2, NEAR_BENCH.y), 3)
+            pygame.draw.line(s, POLE, (px + 1, ROOF.bottom), (px + 1, NEAR_BENCH.y), 1)
+            pygame.draw.line(s, POLE_DK, (px + 2, ROOF.bottom), (px + 2, NEAR_BENCH.y), 1)
+            pygame.draw.rect(s, POLE_DK, (px - 1, NEAR_BENCH.y - 2, 7, 3))
 
     # -- people --------------------------------------------------------------------------------
 
@@ -432,9 +535,7 @@ class RideView:
         s.blit(self.interior, (0, 0))
         self._draw_outside(s)
         self._draw_far_wall(s)
-        for px in POLE_XS:
-            pygame.draw.line(s, OUTLINE, (px + 2, ROOF.bottom), (px + 2, NEAR_BENCH.y), 3)
-            pygame.draw.line(s, POLE, (px + 1, ROOF.bottom), (px + 1, NEAR_BENCH.y), 1)
+        self._draw_fittings(s)
         self._draw_people(s)
         moving = not self._dwelling() and self.metro.stalled == 0 and not self.metro.held
         sway = 1 if moving and int(self.time * 5) % 2 else 0

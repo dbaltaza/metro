@@ -21,14 +21,16 @@ IW, IH = VIEW.width // PIX, VIEW.height // PIX
 
 WALL_CAP = pygame.Rect(0, 0, IW, 7)
 WALL_FACE = pygame.Rect(0, 7, IW, 37)
-PLATFORM_1 = pygame.Rect(0, 44, IW, 54)
-EDGE_1 = pygame.Rect(0, 98, IW, 6)
-PIT_A = pygame.Rect(0, 104, IW, 32)
-KERB = pygame.Rect(0, 136, IW, 6)
-PIT_B = pygame.Rect(0, 142, IW, 32)
-LIP_2 = pygame.Rect(0, 174, IW, 4)
-PLATFORM_2 = pygame.Rect(0, 178, IW, 58)
-FRONT_CAP = pygame.Rect(0, 236, IW, IH - 236)
+# The pits are deep enough for a car that stands taller than the people on
+# the platform, the way a real one does.
+PLATFORM_1 = pygame.Rect(0, 44, IW, 49)
+EDGE_1 = pygame.Rect(0, 93, IW, 6)
+PIT_A = pygame.Rect(0, 99, IW, 38)
+KERB = pygame.Rect(0, 137, IW, 6)
+PIT_B = pygame.Rect(0, 143, IW, 38)
+LIP_2 = pygame.Rect(0, 181, IW, 4)
+PLATFORM_2 = pygame.Rect(0, 185, IW, 54)
+FRONT_CAP = pygame.Rect(0, 239, IW, IH - 239)
 
 # --- palette -------------------------------------------------------------------------
 
@@ -70,12 +72,12 @@ BUTTON_HOVER = (58, 64, 76)
 # --- trains ----------------------------------------------------------------------------
 
 CARS = 3
-CAR_LEN = 132
+CAR_LEN = 144
 CAR_GAP = 6
-ROOF_H = 13
-SIDE_H = 16
+ROOF_H = 16
+SIDE_H = 22
 TRAIN_LEN = CARS * CAR_LEN + (CARS - 1) * CAR_GAP
-DOOR_W = 12
+DOOR_W = 14
 DOOR_FRACTIONS = [0.24, 0.76]
 
 WANDER_SPEED = 13.0
