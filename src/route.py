@@ -11,6 +11,7 @@ from src.paths import resource
 from src.settings import OPTIONS, SETTINGS, choice_index
 from src.sim import Simulation
 from src.sprites import OUTLINE, shade
+from src.station_style import style_for, underground
 from src.version import VERSION
 
 WINDOW_W, WINDOW_H = 1280, 840
@@ -827,10 +828,14 @@ class StationTransition(Transition):
     TILE_EDGE = (38, 36, 44)
     SIGN_BG = (26, 38, 76)
 
-    def __init__(self, target, color, title: str, subtitle: str, lines, ascending: bool = False):
+    def __init__(self, target, color, title: str, subtitle: str, lines, ascending: bool = False, palette=None):
         super().__init__(target, color, title, subtitle)
         self.lines = list(lines)
         self.ascending = ascending   # steps run the other way on the way out
+        # Walking down into a station shows that station's tiles, dimmed to
+        # the light of the passage. Coming back up to the map has none.
+        tile = underground(palette.wall) if palette is not None else self.TILE
+        self.tile, self.tile_dk, self.tile_edge = tile, shade(tile, -12), shade(tile, -24)
         self.plate = pygame.font.SysFont("helvetica,arial", 30, bold=True)
         self.tag = pygame.font.SysFont("helvetica,arial", 13, bold=True)
 
@@ -844,7 +849,7 @@ class StationTransition(Transition):
 
     def _tiles(self, screen: pygame.Surface, rect: pygame.Rect, from_top: bool) -> None:
         """A tiled station wall, laid in courses from the outside edge in."""
-        pygame.draw.rect(screen, self.TILE_DK, rect)
+        pygame.draw.rect(screen, self.tile_dk, rect)
         tile_w, tile_h = 54, 27
         rows = rect.height // tile_h + 2
         for row in range(rows):
@@ -856,9 +861,9 @@ class StationTransition(Transition):
                 if clipped.width <= 0 or clipped.height <= 0:
                     continue
                 screen.set_clip(rect)
-                pygame.draw.rect(screen, self.TILE, tile)
-                pygame.draw.line(screen, shade(self.TILE, 14), (tile.x, tile.y), (tile.right - 1, tile.y))
-                pygame.draw.line(screen, self.TILE_EDGE, (tile.x, tile.bottom - 1), (tile.right - 1, tile.bottom - 1))
+                pygame.draw.rect(screen, self.tile, tile)
+                pygame.draw.line(screen, shade(self.tile, 14), (tile.x, tile.y), (tile.right - 1, tile.y))
+                pygame.draw.line(screen, self.tile_edge, (tile.x, tile.bottom - 1), (tile.right - 1, tile.bottom - 1))
                 screen.set_clip(None)
         # A band in the line's colour along the edge that meets the middle.
         edge_y = rect.bottom - 6 if from_top else rect.y
@@ -1302,7 +1307,8 @@ def run(sim: Simulation) -> None:
                 step.line_name = metro.line
                 return step
             serving = world.serving[target[1]]
-            return StationTransition(target, serving[0].color, target[1], "walking down to the platform", serving)
+            return StationTransition(target, serving[0].color, target[1], "walking down to the platform",
+                                     serving, palette=style_for(target[1]).palette)
         metro = target[1]
         color = sim.map.line_named(metro.line).color
         if isinstance(scene, StationView):

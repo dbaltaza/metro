@@ -1,12 +1,19 @@
 """Station scene layout: screen regions, palette, timing constants, and the
-static backdrop (walls, floors, pits, furniture) drawn once per station."""
+static backdrop (walls, floors, pits, furniture) drawn once per station.
 
+The colours of the wall, the floor and the pillars are not fixed: each
+station is clad differently, and station_style says how. The constants here
+are what a station is drawn in when nothing says otherwise."""
+
+import math
 import random
+import zlib
 
 import pygame
 
 from src.route import WINDOW_H, WINDOW_W
 from src.sprites import OUTLINE, shade
+from src.station_style import StationStyle, style_for
 
 # --- screen layout (full resolution) ---------------------------------------------
 
@@ -126,6 +133,11 @@ def box(surface, rect: pygame.Rect, color, outline=OUTLINE) -> None:
     pygame.draw.line(surface, shade(color, -26), (rect.left, rect.bottom - 1), (rect.right - 1, rect.bottom - 1))
 
 
+# Where the tile panels go: the stretches of wall that neither the furniture
+# nor the platform caption on top of it covers up.
+PANELS = (pygame.Rect(520, 15, 28, 20), pygame.Rect(IW - 66, 14, 58, 22))
+
+
 def exits(platform: pygame.Rect) -> list[pygame.Rect]:
     y = platform.y + 6 if platform is PLATFORM_1 else platform.bottom - 28
     return [pygame.Rect(6, y, 26, 22), pygame.Rect(IW - 32, y, 26, 22)]
@@ -133,20 +145,14 @@ def exits(platform: pygame.Rect) -> list[pygame.Rect]:
 
 def render_backdrop(station_name: str, line_color, network_lines) -> tuple[pygame.Surface, pygame.Rect, dict[int, pygame.Rect]]:
     s = pygame.Surface((IW, IH), 0, 24)
-    rng = random.Random(hash(station_name) & 0xFFFF)
+    # crc32 of the name, not hash(): hash() is salted per process, so a
+    # station's stains and gravel moved about between one run and the next.
+    style = style_for(station_name)
+    rng = random.Random(zlib.crc32(station_name.encode("utf-8")) & 0xFFFF)
 
-    # Back wall: a light cap on top, then the face with a darker band.
-    pygame.draw.rect(s, WALL_CAP_C, WALL_CAP)
-    pygame.draw.line(s, shade(WALL_CAP_C, 30), (0, 0), (IW, 0))
-    pygame.draw.rect(s, WALL_C, WALL_FACE)
-    pygame.draw.rect(s, WALL_BAND, (0, WALL_FACE.y, IW, 3))
-    pygame.draw.rect(s, WALL_DARK, (0, WALL_FACE.bottom - 5, IW, 5))
-    for x in range(0, IW, 16):  # brick courses
-        pygame.draw.line(s, shade(WALL_C, -10), (x, WALL_FACE.y + 10), (x, WALL_FACE.bottom - 6))
-    pygame.draw.line(s, shade(WALL_C, -10), (0, WALL_FACE.y + 20), (IW, WALL_FACE.y + 20))
-
-    _floor(s, PLATFORM_1, rng)
-    _floor(s, PLATFORM_2, rng)
+    _wall(s, style, rng)
+    _floor(s, PLATFORM_1, rng, style)
+    _floor(s, PLATFORM_2, rng, style)
     _tactile(s, PLATFORM_1.bottom - 8)
     _tactile(s, PLATFORM_2.top + 4)
 
@@ -164,17 +170,125 @@ def render_backdrop(station_name: str, line_color, network_lines) -> tuple[pygam
     pygame.draw.line(s, FRONT_HI, (0, FRONT_CAP.y), (IW, FRONT_CAP.y))
     pygame.draw.line(s, OUTLINE, (0, FRONT_CAP.y - 1), (IW, FRONT_CAP.y - 1))
 
-    sign_rect, led_rects = _furniture(s, station_name, line_color, network_lines)
+    sign_rect, led_rects = _furniture(s, station_name, line_color, network_lines, style)
     return s, sign_rect, led_rects
 
-def _floor(s, rect: pygame.Rect, rng: random.Random) -> None:
-    pygame.draw.rect(s, GROUT, rect)
+
+def _wall(s, style: StationStyle, rng: random.Random) -> None:
+    """The back wall: a lit cap, the tiled face in this station's pattern, a
+    band across the top and a shadow at its foot, then the tile panels."""
+    p = style.palette
+    pygame.draw.rect(s, p.cap, WALL_CAP)
+    pygame.draw.line(s, shade(p.cap, 30), (0, 0), (IW, 0))
+    pygame.draw.rect(s, p.wall, WALL_FACE)
+
+    face = pygame.Rect(0, WALL_FACE.y + 3, IW, WALL_FACE.height - 8)
+    joint, lit = shade(p.wall, -14), shade(p.wall, 12)
+    if style.pattern == "courses":
+        for row, y in enumerate(range(face.y, face.bottom, 7)):
+            pygame.draw.line(s, joint, (0, y), (IW, y))
+            for x in range(row % 2 * 8, IW, 16):
+                pygame.draw.line(s, joint, (x, y), (x, min(y + 6, face.bottom - 1)))
+    elif style.pattern == "squares":
+        for y in range(face.y, face.bottom, 8):
+            pygame.draw.line(s, joint, (0, y), (IW, y))
+        for x in range(0, IW, 8):
+            pygame.draw.line(s, joint, (x, face.y), (x, face.bottom - 1))
+    elif style.pattern == "bands":
+        for i, y in enumerate(range(face.y, face.bottom, 5)):
+            if i % 2:
+                pygame.draw.rect(s, joint, (0, y, IW, min(5, face.bottom - y)))
+    elif style.pattern == "diamonds":
+        for x in range(-face.height, IW + face.height, 10):
+            pygame.draw.line(s, joint, (x, face.y), (x + face.height, face.bottom - 1))
+            pygame.draw.line(s, lit, (x, face.bottom - 1), (x + face.height, face.y))
+    elif style.pattern == "stripes":
+        for x in range(0, IW, 12):
+            pygame.draw.rect(s, joint, (x, face.y, 6, face.height))
+            pygame.draw.line(s, lit, (x + 6, face.y), (x + 6, face.bottom - 1))
+    elif style.pattern == "mosaic":
+        for y in range(face.y, face.bottom, 4):
+            for x in range(0, IW, 4):
+                tone = rng.choice((p.wall, joint, lit))
+                pygame.draw.rect(s, tone, (x, y, 3, min(3, face.bottom - y)))
+
+    _frieze(s, style)
+    pygame.draw.rect(s, p.dark, (0, WALL_FACE.bottom - 5, IW, 5))
+    for panel in PANELS:
+        _azulejo(s, panel, style)
+
+
+def _frieze(s, style: StationStyle) -> None:
+    """A band of tiles along the top of the wall, running the whole width.
+
+    The panels below it are small and the furniture covers most of the wall,
+    so this is the part of a station's tiling you always see."""
+    p = style.palette
+    band = pygame.Rect(0, WALL_FACE.y, IW, 4)
+    pygame.draw.rect(s, p.band, band)
+    y = band.y + 1
+    if style.motif == "waves":
+        for x in range(IW):
+            s.set_at((x, y + (x // 3) % 2), p.accent)
+    elif style.motif == "chevron":
+        for x in range(0, IW, 8):
+            pygame.draw.lines(s, p.accent, False, [(x, y + 2), (x + 2, y), (x + 4, y + 2)])
+    elif style.motif == "circles":
+        for x in range(2, IW, 8):
+            pygame.draw.rect(s, p.accent, (x, y, 2, 2))
+    elif style.motif == "arches":
+        for x in range(0, IW, 8):
+            pygame.draw.rect(s, p.accent, (x, y + 1, 5, 1))
+            pygame.draw.rect(s, p.accent, (x + 1, y, 3, 1))
+    elif style.motif == "lattice":
+        for x in range(0, IW, 6):
+            pygame.draw.line(s, p.accent, (x, y), (x + 2, y + 2))
+            pygame.draw.line(s, p.accent, (x, y + 2), (x + 2, y))
+
+
+def _azulejo(s, rect: pygame.Rect, style: StationStyle) -> None:
+    """A tile panel: a framed field with a motif painted across it, the way
+    every station on the network has one and no two of them match."""
+    p = style.palette
+    pygame.draw.rect(s, OUTLINE, rect.inflate(2, 2))
+    pygame.draw.rect(s, shade(p.wall, 26), rect)
+    clip = s.get_clip()
+    s.set_clip(rect.inflate(-2, -2))
+    color = p.accent
+    if style.motif == "waves":
+        for row in range(rect.y + 4, rect.bottom - 2, 6):
+            for x in range(rect.x + 2, rect.right - 2):
+                s.set_at((x, row + round(1.7 * math.sin((x - rect.x) / 3.2))), color)
+    elif style.motif == "chevron":
+        for y in range(rect.y + 4, rect.bottom, 7):
+            for x in range(rect.x + 2, rect.right, 10):
+                pygame.draw.lines(s, color, False, [(x, y + 4), (x + 4, y), (x + 8, y + 4)])
+    elif style.motif == "circles":
+        for y in range(rect.y + 7, rect.bottom, 12):
+            for x in range(rect.x + 8, rect.right, 13):
+                pygame.draw.circle(s, color, (x, y), 4, 1)
+    elif style.motif == "arches":
+        for x in range(rect.x + 6, rect.right, 13):
+            pygame.draw.arc(s, color, (x - 6, rect.bottom - 18, 14, 22), 0.2, math.pi - 0.2, 1)
+            pygame.draw.rect(s, color, (x - 1, rect.y + 3, 2, 2))
+    elif style.motif == "lattice":
+        for x in range(rect.x - rect.height, rect.right, 7):
+            pygame.draw.line(s, color, (x, rect.y + 2), (x + rect.height, rect.bottom - 2))
+            pygame.draw.line(s, color, (x, rect.bottom - 2), (x + rect.height, rect.y + 2))
+    s.set_clip(clip)
+    pygame.draw.rect(s, shade(p.accent, -30), rect, 1)
+
+
+def _floor(s, rect: pygame.Rect, rng: random.Random, style: StationStyle) -> None:
+    p = style.palette
+    stain = shade(p.floor_a, -14)
+    pygame.draw.rect(s, p.grout, rect)
     tile = 8
     for ty in range(rect.y, rect.bottom, tile):
         for tx in range(0, IW, tile):
-            color = FLOOR_A if ((tx // tile + ty // tile) % 2 == 0) else FLOOR_B
+            color = p.floor_a if ((tx // tile + ty // tile) % 2 == 0) else p.floor_b
             if rng.random() < 0.06:
-                color = STAIN
+                color = stain
             pygame.draw.rect(s, color, (tx, ty, tile - 1, min(tile - 1, rect.bottom - ty)))
     # Soft pools of light from the ceiling.
     pool = pygame.Surface((90, 26), pygame.SRCALPHA)
@@ -198,15 +312,15 @@ def _pit(s, rect: pygame.Rect, rng: random.Random) -> None:
         pygame.draw.line(s, RAIL, (0, ry), (IW, ry), 2)
         pygame.draw.line(s, RAIL_HI, (0, ry - 1), (IW, ry - 1))
 
-def _pillar(s, x: int, top: int, bottom: int) -> None:
+def _pillar(s, x: int, top: int, bottom: int, color=PILLAR) -> None:
     shadow = pygame.Surface((14, bottom - top), pygame.SRCALPHA)
     shadow.fill((0, 0, 0, 50))
     s.blit(shadow, (x + 6, top + 4))
-    box(s, pygame.Rect(x, top, 8, bottom - top), PILLAR)
-    pygame.draw.line(s, PILLAR_HI, (x, top), (x, bottom - 1))
-    pygame.draw.line(s, PILLAR_DK, (x + 7, top), (x + 7, bottom - 1))
+    box(s, pygame.Rect(x, top, 8, bottom - top), color)
+    pygame.draw.line(s, shade(color, 24), (x, top), (x, bottom - 1))
+    pygame.draw.line(s, shade(color, -30), (x + 7, top), (x + 7, bottom - 1))
 
-def _furniture(s, station_name: str, line_color, network_lines) -> tuple[pygame.Rect, dict[int, pygame.Rect]]:
+def _furniture(s, station_name: str, line_color, network_lines, style: StationStyle) -> tuple[pygame.Rect, dict[int, pygame.Rect]]:
     # Station sign on the wall, text drawn later at full resolution.
     sign_rect = pygame.Rect(IW // 2 - 78, WALL_FACE.y + 8, 156, 16)
     box(s, sign_rect, SIGN_BG, SIGN_EDGE)
@@ -261,8 +375,8 @@ def _furniture(s, station_name: str, line_color, network_lines) -> tuple[pygame.
         pygame.draw.rect(s, BENCH_DK, (bx + 24, PLATFORM_1.y + 16, 2, 3))
         box(s, pygame.Rect(bx + 90, PLATFORM_2.bottom - 16, 28, 6), BENCH)
     for px in (96, 320, 544):
-        _pillar(s, px, PLATFORM_1.y + 4, PLATFORM_1.y + 40)
-        _pillar(s, px, PLATFORM_2.y + 14, PLATFORM_2.bottom - 4)
+        _pillar(s, px, PLATFORM_1.y + 4, PLATFORM_1.y + 40, style.palette.pillar)
+        _pillar(s, px, PLATFORM_2.y + 14, PLATFORM_2.bottom - 4, style.palette.pillar)
     # Yellow wet-floor signs like in the reference, just for flavour.
     for wx in (IW - 60, IW - 44):
         pygame.draw.polygon(s, TACTILE, [(wx, PLATFORM_1.y + 30), (wx + 5, PLATFORM_1.y + 20), (wx + 10, PLATFORM_1.y + 30)])

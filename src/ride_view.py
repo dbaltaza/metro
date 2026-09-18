@@ -15,11 +15,11 @@ from src.route import HIGHLIGHT, MUTED, PANEL_BG, PANEL_EDGE, TEXT, WINDOW_H, WI
 from src.sim import DWELL_SECONDS, Simulation
 from src.sprites import OUTLINE, draw_character, shade
 from src.station_layout import (
-    BAND, BOARD, DOOR_CLOSE_SECONDS, DOOR_OPEN_SECONDS, FLOOR_A, FLOOR_B, GLASS_PANE,
-    GROUT, HEADER_H, IH, IW, LED, LED_BG, ML_RED, PIX, PILLAR, PILLAR_DK, PILLAR_HI,
-    SILVER, SILVER_HI, SILVER_LO, SKIRT, STEP_GAP, TACTILE, TACTILE_DARK, VIEW, WALL_BAND,
-    WALL_C, box,
+    BAND, BOARD, DOOR_CLOSE_SECONDS, DOOR_OPEN_SECONDS, GLASS_PANE,
+    HEADER_H, IH, IW, LED, LED_BG, ML_RED, PIX,
+    SILVER, SILVER_HI, SILVER_LO, SKIRT, STEP_GAP, TACTILE, TACTILE_DARK, VIEW, box,
 )
+from src.station_style import style_for
 
 # --- car layout (world pixels) --------------------------------------------------------
 
@@ -368,22 +368,24 @@ class RideView:
         if left > IW or left + PLATFORM_W < 0:
             return
         rect = pygame.Rect(round(left), OUTSIDE.y, PLATFORM_W, OUTSIDE.height)
-        # Back wall of the station with a band, then floor tiles by the car.
-        pygame.draw.rect(s, WALL_C, (rect.x, rect.y, rect.width, 26))
-        pygame.draw.rect(s, WALL_BAND, (rect.x, rect.y, rect.width, 3))
-        pygame.draw.rect(s, GROUT, (rect.x, rect.y + 26, rect.width, rect.height - 26))
+        # Every station is clad differently, so the platform sliding past the
+        # windows is in that station's colours, not one set of them for all.
+        p = style_for(name).palette
+        pygame.draw.rect(s, p.wall, (rect.x, rect.y, rect.width, 26))
+        pygame.draw.rect(s, p.band, (rect.x, rect.y, rect.width, 3))
+        pygame.draw.rect(s, p.grout, (rect.x, rect.y + 26, rect.width, rect.height - 26))
         tile = 8
         for ty in range(rect.y + 26, rect.bottom, tile):
             for tx in range(rect.x, rect.right, tile):
-                color = FLOOR_A if ((tx // tile + ty // tile) % 2 == 0) else FLOOR_B
+                color = p.floor_a if ((tx // tile + ty // tile) % 2 == 0) else p.floor_b
                 pygame.draw.rect(s, color, (tx, ty, tile - 1, min(tile - 1, rect.bottom - ty)))
         for x in range(rect.x, rect.right, 12):
             pygame.draw.rect(s, TACTILE, (x + 2, rect.bottom - 5, 8, 3))
             pygame.draw.line(s, TACTILE_DARK, (x + 2, rect.bottom - 2), (x + 9, rect.bottom - 2))
         for px in range(rect.x + 120, rect.right - 100, 240):
-            box(s, pygame.Rect(px, rect.y + 20, 6, 30), PILLAR)
-            pygame.draw.line(s, PILLAR_HI, (px, rect.y + 20), (px, rect.y + 49))
-            pygame.draw.line(s, PILLAR_DK, (px + 5, rect.y + 20), (px + 5, rect.y + 49))
+            box(s, pygame.Rect(px, rect.y + 20, 6, 30), p.pillar)
+            pygame.draw.line(s, shade(p.pillar, 24), (px, rect.y + 20), (px, rect.y + 49))
+            pygame.draw.line(s, shade(p.pillar, -30), (px + 5, rect.y + 20), (px + 5, rect.y + 49))
         sign = pygame.Rect(round(cx) - 70, rect.y + 6, 140, 14)
         box(s, sign, (28, 40, 78), (220, 224, 232))
         pygame.draw.rect(s, self.line.color, (sign.x + 3, sign.y + 3, 5, 8))

@@ -18,7 +18,8 @@ from src.ride_view import RideView              # noqa: E402
 from src.route import (                      # noqa: E402
     WINDOW_H, WINDOW_W, MapScene, SettingsMenu, StationTransition, World,
 )
-from src.sim import Simulation, spread_trains   # noqa: E402
+from src.sim import Simulation, spread_trains
+from src.station_style import style_for   # noqa: E402
 from src.station_view import StationView        # noqa: E402
 
 DOCS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docs")
@@ -84,7 +85,8 @@ def main() -> None:
     # The entrance loader, held open at the point where it is fully covered.
     serving = world.serving["Alameda"]
     loader = StationTransition(("station", "Alameda"), serving[0].color, "Alameda",
-                               "walking down to the platform", serving)
+                               "walking down to the platform", serving,
+                               palette=style_for("Alameda").palette)
     loader.phase, loader.t = "hold", loader.HOLD * 0.55
     loader.draw(screen)
     pygame.image.save(screen, os.path.join(DOCS, "loading.png"))
