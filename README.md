@@ -21,6 +21,9 @@ Needs Python 3.12 or newer.
 
 ### Easier ways to launch it
 
+- **Download the app** from the [Releases](../../releases) page: unzip it,
+  drop it into Applications, then right-click and Open the first time, since
+  it is not signed.
 - **Double-click `Metro.command`** on macOS. It sets up the virtual environment
   the first time and starts the game every time after that.
 - **Build an app** you can drop into Applications:

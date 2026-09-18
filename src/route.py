@@ -11,6 +11,7 @@ from src.paths import resource
 from src.settings import OPTIONS, SETTINGS, choice_index
 from src.sim import Simulation
 from src.sprites import OUTLINE, shade
+from src.version import VERSION
 
 WINDOW_W, WINDOW_H = 1280, 840
 PANEL_W = 290
@@ -544,7 +545,10 @@ class Panel:
         x, y = self.rect.x + 18, 18
 
         minutes, seconds = divmod(int(sim.clock), 60)
-        y = self._text(surface, self.title, "Metro de Lisboa", x, y)
+        title = self._text(surface, self.title, "Metro de Lisboa", x, y)
+        stamp = sprites.text(self.small, f"v{VERSION}", shade(MUTED, -46))
+        surface.blit(stamp, (self.rect.right - 18 - stamp.get_width(), y + 8))
+        y = title
         status = f"{minutes:02d}:{seconds:02d}   {speed:g}x" + ("   PAUSED" if paused else "")
         y = self._text(surface, self.body, status, x, y + 2, MUTED)
         y = self._text(surface, self.small, "1 2 3 set speed   Space pauses   S settings", x, y + 2, MUTED) + 10

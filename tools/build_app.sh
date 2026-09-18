@@ -10,6 +10,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 NAME="Metro Lisboa"
+VERSION=$(sed -n 's/^VERSION = "\(.*\)"/\1/p' src/version.py)
 
 if [ ! -x .venv/bin/python ]; then
     python3 -m venv .venv
@@ -42,7 +43,13 @@ case "$(uname)" in MINGW*|MSYS*|CYGWIN*) SEP=";";; esac
 
 echo
 if [ "$(uname)" = "Darwin" ]; then
-    echo "Built dist/$NAME.app"
+    # PyInstaller writes 0.0.0; give Finder and the Info window the real one.
+    PLIST="dist/$NAME.app/Contents/Info.plist"
+    for key in CFBundleShortVersionString CFBundleVersion; do
+        /usr/libexec/PlistBuddy -c "Set :$key $VERSION" "$PLIST" >/dev/null 2>&1 \
+            || /usr/libexec/PlistBuddy -c "Add :$key string $VERSION" "$PLIST" >/dev/null
+    done
+    echo "Built dist/$NAME.app ($VERSION)"
     if [ "${1:-}" = "--install" ]; then
         TARGET=/Applications
         [ -w "$TARGET" ] || TARGET="$HOME/Applications"
