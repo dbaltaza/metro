@@ -35,7 +35,19 @@ SKIRT_BAND = pygame.Rect(0, 234, IW, IH - 234)
 DOOR_XS = (round(IW * 0.24), round(IW * 0.76))
 DOOR_W = 34
 CAR_WINDOW_W, WINDOW_STEP = 44, 68
-POLE_XS = (150, 320, 490)
+DOOR_CLEAR = DOOR_W / 2 + 8        # keep fittings this far from a door centre
+
+
+def clear_of_doors(x: float) -> bool:
+    "Nothing may stand in a doorway: you have to be able to walk through it."
+    return all(abs(x - d) >= DOOR_CLEAR for d in DOOR_XS)
+
+
+# Poles go in the middle of each clear run between the doors and the car ends,
+# derived rather than written down so they can never drift into a doorway.
+_EDGES = (0, *DOOR_XS, IW)
+POLE_XS = tuple(round((a + b) / 2) for a, b in zip(_EDGES, _EDGES[1:]))
+STRAP_XS = tuple(x for x in range(34, IW - 20, 46) if clear_of_doors(x))
 
 SEGMENT_PX = 1500.0        # how far the outside scrolls between two stations
 PLATFORM_W = 980
@@ -467,7 +479,7 @@ class RideView:
         pygame.draw.line(s, POLE, (0, rail_y), (IW, rail_y), 1)
         # Straps: a short hanger and a loop, swaying with the car.
         swing = math.sin(self.time * 2.2) * 1.6 if not self._dwelling() else 0.0
-        for i, x in enumerate(range(34, IW - 20, 46)):
+        for i, x in enumerate(STRAP_XS):
             lean = round(swing * (1 if i % 2 else -1))
             top = (x, rail_y + 2)
             bottom = (x + lean, rail_y + 13)

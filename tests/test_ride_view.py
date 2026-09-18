@@ -1,7 +1,7 @@
 import pygame
 import pytest
 
-from src.ride_view import DOOR_XS, RideView
+from src.ride_view import DOOR_XS, IW, RideView
 from src.route import World
 from src.sim import DWELL_SECONDS
 from src.station_view import StationView
@@ -163,3 +163,33 @@ def test_riders_are_visible_the_moment_you_board(display, world, sim):
     ride.draw(display, False, 1.0)
     ride.update(FRAME, [])
     assert set(ride.seats) <= aboard and len(ride.seats) == expected
+
+
+def test_nothing_stands_in_a_doorway():
+    """A grab pole once sat four pixels from the centre of each doorway, so
+    you watched people walk through solid metal to get on and off."""
+    from src.ride_view import DOOR_CLEAR, DOOR_W, DOOR_XS, POLE_XS, STRAP_XS, clear_of_doors
+
+    assert DOOR_CLEAR > DOOR_W / 2, "clearance narrower than the door itself"
+    for x in POLE_XS:
+        assert clear_of_doors(x), f"grab pole at {x} stands in a doorway"
+    for x in STRAP_XS:
+        assert clear_of_doors(x), f"hanging strap at {x} hangs in a doorway"
+    assert len(POLE_XS) == len(DOOR_XS) + 1, "one pole per clear run of the car"
+    assert len(STRAP_XS) >= 8, "the straps were all filtered away"
+    # The poles are spread out, not bunched at one end.
+    assert POLE_XS == tuple(sorted(POLE_XS))
+    assert min(POLE_XS) > 0 and max(POLE_XS) < IW
+
+
+def test_the_seats_leave_the_doorways_clear_too(display, world, sim):
+    from src.ride_view import DOOR_XS, clear_of_doors
+
+    run_for(sim, 30)
+    train = _yellow_train(sim)
+    ride = RideView(world, sim, train)
+    far_row = [x for x, y, _ in ride.spots if y == max(s[1] for s in ride.spots if s[1] < 120)]
+    assert far_row, "no seats along the far bench"
+    for x in far_row:
+        assert clear_of_doors(x), f"a seat at {x} blocks a doorway"
+    assert len(DOOR_XS) == 2
