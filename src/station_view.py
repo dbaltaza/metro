@@ -59,9 +59,8 @@ class StationView:
         self.tab_rects: list[pygame.Rect] = []
         # 24-bit for the same reason as the map: no stray alpha bytes.
         self.world_surface = pygame.Surface((IW, IH), 0, 24)
-        self.backdrop, self.sign_rect, self.led_rects = render_backdrop(
-            self.name, self.line.color, self.world.map.lines
-        )
+        self.backdrops: dict[str, tuple] = {}
+        self._use_backdrop()
         self.train_shadow = pygame.Surface((TRAIN_LEN + 4, 14), pygame.SRCALPHA)
         self.train_shadow.fill((0, 0, 0, 110))
         self.spill = pygame.Surface((DOOR_W + 8, 9), pygame.SRCALPHA)
@@ -72,6 +71,21 @@ class StationView:
     @property
     def line(self) -> Line:
         return self.lines[self.tab]
+
+    def _use_backdrop(self) -> None:
+        """The backdrop carries the line's colour on the station sign, so each
+        line at an interchange gets its own, rendered once."""
+        if self.line.name not in self.backdrops:
+            self.backdrops[self.line.name] = render_backdrop(self.name, self.line.color, self.world.map.lines)
+        self.backdrop, self.sign_rect, self.led_rects = self.backdrops[self.line.name]
+
+    def switch_line(self, tab: int) -> None:
+        if tab == self.tab:
+            return
+        self.tab = tab
+        self.people.clear()
+        self._waiting_cache = None
+        self._use_backdrop()
 
     def _index(self, station_name: str) -> int:
         return self.line.stations.index(station_name)
@@ -172,9 +186,7 @@ class StationView:
         if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
             return "back"
         if event.type == pygame.KEYDOWN and event.key == pygame.K_TAB and len(self.lines) > 1:
-            self.tab = (self.tab + 1) % len(self.lines)
-            self.people.clear()
-            self._waiting_cache = None
+            self.switch_line((self.tab + 1) % len(self.lines))
         if event.type == pygame.MOUSEMOTION:
             self.mouse = event.pos
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
@@ -185,10 +197,8 @@ class StationView:
                 if metro.current_station == self.name and metro.cooldown > 0:
                     return ("ride", metro)
             for i, rect in enumerate(self.tab_rects):
-                if rect.collidepoint(event.pos) and i != self.tab:
-                    self.tab = i
-                    self.people.clear()
-                    self._waiting_cache = None
+                if rect.collidepoint(event.pos):
+                    self.switch_line(i)
         return None
 
     def _tick_people(self, dt: float) -> None:
@@ -277,6 +287,7 @@ class StationView:
         for kind, passenger, metro in events:
             if metro.current_station != self.name or metro.line != self.line.name:
                 continue
+            line = metro.line
             arrival = self.arrivals.get(metro.id, self.time)
             side = self._side(metro)
             pit = self._pit_for(side)
@@ -301,7 +312,7 @@ class StationView:
                     ("move", (door_x, door_y), out_pt, t_out, t_exit_end),
                     ("move", out_pt, exit_pt, t_exit_end, t_walk_end),
                 ]
-                self.walkers.append(dict(kind=kind, passenger=passenger, segments=segments, fade_last=0.25, end=t_walk_end))
+                self.walkers.append(dict(kind=kind, line=line, passenger=passenger, segments=segments, fade_last=0.25, end=t_walk_end))
             else:
                 state = self.people.pop(passenger.id, None)
                 start = state["pos"] if state else self._spot(passenger, platform)
@@ -325,7 +336,7 @@ class StationView:
                     ("wait", queue_pt, queue_pt, t_arrive, t_go),
                     ("move", queue_pt, (door_x, door_y), t_go, t_in),
                 ]
-                self.walkers.append(dict(kind=kind, passenger=passenger, segments=segments, fade_last=0.5, end=t_in, face=facing_train, train=metro.id))
+                self.walkers.append(dict(kind=kind, line=line, passenger=passenger, segments=segments, fade_last=0.5, end=t_in, face=facing_train, train=metro.id))
         self.walkers = [w for w in self.walkers if self.time < w["end"]]
 
     def _walker_pose(self, walker: dict):
@@ -371,7 +382,8 @@ class StationView:
         # Everything with a foot on the ground is sorted by y so nearer things
         # draw over farther ones, which is what sells the perspective.
         drawables: list[tuple[float, int, object]] = []
-        walking = {w["passenger"].id for w in self.walkers}
+        shown = [w for w in self.walkers if w["line"] == self.line.name]
+        walking = {w["passenger"].id for w in shown}
         for passenger, direction in self._waiting_here():
             state = self.people.get(passenger.id)
             if passenger.id in walking or state is None:
@@ -381,7 +393,7 @@ class StationView:
             drawables.append((y, 0, ("person", x, y, passenger, state["facing"], step, 255)))
         staff_x, staff_y = IW - 112, PLATFORM_1.y + 40
         drawables.append((staff_y, 0, ("staff", staff_x, staff_y)))
-        for walker in self.walkers:
+        for walker in shown:
             pose = self._walker_pose(walker)
             if pose is None:
                 continue

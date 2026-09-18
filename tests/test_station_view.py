@@ -108,3 +108,28 @@ def test_board_copes_with_two_trains_at_the_same_arrival_time(world, sim):
         m.direction, m.cooldown, m.progress = -1, 0.0, 0.5
     view._waiting_cache = None
     view.draw(world and __import__("pygame").display.get_surface(), False)
+
+
+def test_switching_line_at_an_interchange_changes_the_sign_and_hides_the_other_lines_walkers(world, sim):
+    view = StationView(world, sim, "Alameda")
+    assert len(view.lines) == 2
+    first, second = view.lines
+    for _ in range(int(240 / FRAME)):
+        sim.update(FRAME)
+        view.update(FRAME, sim.drain_events())
+        if any(w["line"] == first.name for w in view.walkers):
+            break
+    else:
+        pytest.fail("nobody boarded or alighted on the first line")
+    stripe = (view.sign_rect.x + 3, view.sign_rect.y + 3)
+    assert view.backdrop.get_at(stripe)[:3] == first.color
+
+    view.switch_line(1)
+    assert view.line is second
+    assert view.backdrop.get_at(stripe)[:3] == second.color
+    assert not [w for w in view.walkers if w["line"] == view.line.name]
+    view._draw_world()  # the first line's walkers are kept but not drawn
+    assert all(w["line"] == first.name for w in view.walkers)
+
+    view.switch_line(0)
+    assert view.backdrop.get_at(stripe)[:3] == first.color
