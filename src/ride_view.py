@@ -55,7 +55,7 @@ CEILING_LIGHT = (255, 246, 214)
 WALK_SPEED = 46.0
 DOOR_Y = FAR_BENCH.bottom + 4       # feet y at the door threshold
 EXIT_SECONDS = 0.35                 # stepping out through the doorway
-MAX_STANDING = 10
+MAX_STANDING = 22
 
 
 def smoothstep(t: float) -> float:
@@ -93,6 +93,7 @@ class RideView:
         self.world_surface = pygame.Surface((IW, IH), 0, 24)
         self.interior = self._render_interior()
         self.openings = self._openings()
+        self._assign_seats()   # everyone already aboard is visible from the first frame
 
     def _openings(self) -> list[pygame.Rect]:
         """Door and window rectangles in the far wall, where the outside shows."""
@@ -184,6 +185,8 @@ class RideView:
         mine = [(kind, passenger) for kind, passenger, metro in events if metro is self.metro]
         if mine:
             self._choreograph(mine)
+        else:
+            self._assign_seats()
         self.walkers = [w for w in self.walkers if self.time < w["t1"] + w["exit"]]
         return None
 

@@ -151,3 +151,15 @@ def test_everyone_is_through_the_door_before_it_closes(world, sim):
                 if not w["fade"] and w["start"][0] == door_x:
                     assert w["t0"] >= last_out
     assert stops_seen >= 5
+
+
+def test_riders_are_visible_the_moment_you_board(display, world, sim):
+    run_for(sim, 30)
+    train = next(m for m in sim.metros if m.riders)
+    ride = RideView(world, sim, train)
+    aboard = {p.id for p in train.riders}
+    expected = min(len(aboard), len(ride.spots))
+    assert set(ride.seats) <= aboard and len(ride.seats) == expected
+    ride.draw(display, False, 1.0)
+    ride.update(FRAME, [])
+    assert set(ride.seats) <= aboard and len(ride.seats) == expected
