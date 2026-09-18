@@ -46,6 +46,7 @@ class StationView:
         self.mouse = (0, 0)
         self.labels: list[tuple[pygame.Surface, tuple[float, float]]] = []
         self.people: dict[int, dict] = {}
+        self.seats_taken: dict[tuple[int, int], int] = {}
         self._waiting_cache: list[tuple[Passenger, int]] | None = None
 
         self.title = pygame.font.SysFont("helvetica,arial", 26, bold=True)
@@ -84,6 +85,7 @@ class StationView:
             return
         self.tab = tab
         self.people.clear()
+        self.seats_taken.clear()
         self._waiting_cache = None
         self._use_backdrop()
 
@@ -201,37 +203,165 @@ class StationView:
                     self.switch_line(i)
         return None
 
+    # Bench seats (feet positions) per platform, matching the backdrop's benches.
+    BENCH_SEATS = {
+        -1: [(bx + dx, PLATFORM_1.y + 20) for bx in (110, 420) for dx in (8, 20)],
+        1: [(bx + 90 + dx, PLATFORM_2.bottom - 6) for bx in (110, 420) for dx in (8, 20)],
+    }
+    APPROACH_SECONDS = 9.0     # people line up at the doors when a train is this close
+    IMPATIENT_AFTER = 45.0     # seconds waited before someone starts tapping a foot
+
+    def _train_soon(self, direction: int) -> bool:
+        for metro in self.sim.metros:
+            if metro.line != self.line.name:
+                continue
+            if metro.current_station == self.name and metro.cooldown > 0 and self._side(metro) == direction:
+                return True
+            eta = self._eta(metro, direction)
+            if eta is not None and eta < self.APPROACH_SECONDS:
+                return True
+        return False
+
+    def _edge_spot(self, passenger: Passenger, direction: int) -> tuple[float, float]:
+        """Where to wait for the doors: near the nearest door, a little back
+        from the edge, fanned out so a crowd does not stack on one pixel."""
+        rng = random.Random(passenger.id * 131)
+        platform = self._platform_for(direction)
+        home_x = self.people[passenger.id]["home"][0]
+        door = min(door_xs(IW / 2), key=lambda d: abs(d - home_x))
+        edge_y = platform.bottom - 12 if direction < 0 else platform.top + 16
+        x = min(max(door + rng.uniform(-16, 16), 24), IW - 24)
+        y = edge_y + rng.uniform(-8, 0) if direction < 0 else edge_y + rng.uniform(0, 8)
+        return x, y
+
+    def _board_spot(self, passenger: Passenger, direction: int) -> tuple[float, float]:
+        led = self.led_rects[direction]
+        platform = self._platform_for(direction)
+        rng = random.Random(passenger.id * 17)
+        x = min(max(led.centerx + rng.uniform(-30, 30), 24), IW - 24)
+        y = platform.y + 30 + rng.uniform(0, 6) if direction < 0 else platform.bottom - 10 - rng.uniform(0, 6)
+        return x, y
+
+    def _choose_activity(self, passenger: Passenger, direction: int, state: dict) -> None:
+        """Pick what this person does next. Personalities come from the id:
+        some are phone people, some sit whenever they can, some pace."""
+        rng = random.Random(passenger.id * 31 + int(self.time * 10))
+        traits = random.Random(passenger.id * 7)
+        phone_lover = traits.random() < 0.35
+        sitter = traits.random() < 0.4
+        pacer = traits.random() < 0.3
+        platform = self._platform_for(direction)
+        if state.get("seat") is not None:
+            self.seats_taken.pop(state["seat"], None)
+            state["seat"] = None
+
+        weights = {"idle": 30, "phone": 40 if phone_lover else 15, "wander": 35 if pacer else 15, "bench": 25 if sitter else 8, "board": 10}
+        free = [i for i in range(len(self.BENCH_SEATS[direction])) if (direction, i) not in self.seats_taken]
+        if not free:
+            weights["bench"] = 0
+        acts = list(weights)
+        act = rng.choices(acts, weights=[weights[a] for a in acts])[0]
+        state["act"] = act
+        state["pose"] = "stand"
+        hx, hy = state["home"]
+        if act == "idle":
+            state["target"] = state["pos"]
+            state["until"] = self.time + rng.uniform(2.0, 6.0)
+        elif act == "phone":
+            state["target"] = state["pos"]
+            state["until"] = self.time + rng.uniform(4.0, 12.0)
+        elif act == "wander":
+            tx = min(max(hx + rng.uniform(-WANDER_RANGE[0], WANDER_RANGE[0]), 40), IW - 40)
+            ty = min(max(hy + rng.uniform(-WANDER_RANGE[1], WANDER_RANGE[1]), platform.y + 30), platform.bottom - 6)
+            state["target"] = (tx, ty)
+            state["until"] = self.time + rng.uniform(3.0, 8.0)
+        elif act == "bench":
+            i = min(free, key=lambda i: abs(self.BENCH_SEATS[direction][i][0] - state["pos"][0]))
+            state["seat"] = (direction, i)
+            self.seats_taken[(direction, i)] = passenger.id
+            state["target"] = self.BENCH_SEATS[direction][i]
+            state["until"] = self.time + rng.uniform(10.0, 25.0)
+        else:  # board: walk over and look up at the next-train display
+            state["target"] = self._board_spot(passenger, direction)
+            state["until"] = self.time + rng.uniform(3.0, 6.0)
+
     def _tick_people(self, dt: float) -> None:
-        """Waiting passengers drift around their spot so the platform feels alive."""
+        """Waiting passengers live a little: they idle, check their phone, sit
+        on a bench, walk over to read the board, pace about, and line up at
+        the doors when a train is about to arrive."""
         alive = set()
+        soon = {-1: self._train_soon(-1), 1: self._train_soon(1)}
         for passenger, direction in self._waiting_here():
             alive.add(passenger.id)
             platform = self._platform_for(direction)
             state = self.people.get(passenger.id)
             if state is None:
                 home = self._spot(passenger, platform)
-                state = dict(pos=home, home=home, target=home, until=self.time + random.Random(passenger.id).uniform(0.5, 4.0), moving=False, facing=1)
+                state = dict(pos=home, home=home, target=home, until=self.time + random.Random(passenger.id).uniform(0.3, 3.0),
+                             moving=False, facing=1, act="idle", pose="stand", seat=None, step=0)
                 self.people[passenger.id] = state
-            if self.time >= state["until"]:
-                rng = random.Random(passenger.id * 31 + int(self.time * 10))
-                hx, hy = state["home"]
-                tx = min(max(hx + rng.uniform(-WANDER_RANGE[0], WANDER_RANGE[0]), 40), IW - 40)
-                ty = min(max(hy + rng.uniform(-WANDER_RANGE[1], WANDER_RANGE[1]), platform.y + 30), platform.bottom - 6)
-                state["target"] = (tx, ty)
-                state["until"] = self.time + rng.uniform(3.0, 9.0)
+
+            if soon[direction] and state["act"] != "edge":
+                if state["seat"] is not None:
+                    self.seats_taken.pop(state["seat"], None)
+                    state["seat"] = None
+                state["act"] = "edge"
+                state["pose"] = "stand"
+                state["target"] = self._edge_spot(passenger, direction)
+                state["until"] = self.time + 60.0
+            elif not soon[direction] and (state["act"] == "edge" or self.time >= state["until"]):
+                self._choose_activity(passenger, direction, state)
+
             x, y = state["pos"]
             tx, ty = state["target"]
             dx, dy = tx - x, ty - y
             dist = math.hypot(dx, dy)
-            if dist > 0.6:
-                step = min(WANDER_SPEED * dt, dist)
+            arrived = dist <= 0.6
+            if not arrived:
+                speed = WALK_SPEED * 0.6 if state["act"] == "edge" else WANDER_SPEED
+                step = min(speed * dt, dist)
                 x, y = x + dx / dist * step, y + dy / dist * step
                 state["moving"] = True
                 state["facing"] = -1 if dy < -0.35 * abs(dx) else 1
+                state["pose"] = "stand"
+                state["step"] = int(self.time * 8) % 2 + 1
             else:
                 state["moving"] = False
-                state["facing"] = 1
+                state["step"] = 0
+                act = state["act"]
+                if act == "edge":
+                    state["facing"] = 1 if direction < 0 else -1   # facing the track
+                elif act == "board":
+                    state["facing"] = -1 if direction < 0 else 1   # looking at the display
+                else:
+                    state["facing"] = 1
+                if act == "bench":
+                    state["pose"] = "sit"
+                elif act == "phone":
+                    state["pose"] = "phone"
+                else:
+                    state["pose"] = "stand"
+                if act == "idle":
+                    # Long waits show: a foot taps every few seconds.
+                    waited = self.sim.clock - passenger.waited_since
+                    phase = (self.time + passenger.id * 0.37) % 3.0
+                    if waited > self.IMPATIENT_AFTER and phase < 0.5:
+                        state["step"] = 1 if int(self.time * 8) % 2 else 0
             state["pos"] = (x, y)
+
+        # Keep standing people from stacking on the same pixels.
+        standing = [st for pid, st in self.people.items() if pid in alive and not st["moving"] and st["act"] not in ("bench",)]
+        for i, a in enumerate(standing):
+            for b in standing[i + 1:]:
+                ax, ay = a["pos"]
+                bx, by = b["pos"]
+                if abs(ax - bx) < 8 and abs(ay - by) < 3:
+                    push = 10 * dt if ax <= bx else -10 * dt
+                    a["pos"] = (min(max(ax - push, 20), IW - 20), ay)
+                    b["pos"] = (min(max(bx + push, 20), IW - 20), by)
+        for pid, st in self.people.items():
+            if pid not in alive and st.get("seat") is not None:
+                self.seats_taken.pop(st["seat"], None)
         self.people = {pid: st for pid, st in self.people.items() if pid in alive}
 
     def _side(self, metro: Metro) -> int:
@@ -295,16 +425,20 @@ class StationView:
             edge_y = platform.bottom - 12 if side < 0 else platform.top + 16
             door_y = pit.top - 2 if side < 0 else pit.top + ROOF_H + SIDE_H - 2
             doors = door_xs(IW / 2)
-            facing_train = -1 if side < 0 else 1
+            facing_train = 1 if side < 0 else -1   # platform 1 looks down at its track, platform 2 up
 
             if kind == "alight":
                 door_x = random.Random(passenger.id).choice(doors)
                 idx = alighting_per_door.get((metro.id, door_x), 0)
                 alighting_per_door[(metro.id, door_x)] = idx + 1
                 t_out = max(arrival + DOOR_OPEN_SECONDS, self.time) + idx * STEP_GAP
-                out_pt = (door_x + random.Random(passenger.id + 3).uniform(-4, 4), edge_y)
+                jitter = random.Random(passenger.id + 3)
+                # Step off the train, then drift into the platform on the way to
+                # the stairs, so a full train does not file out in one straight line.
+                into = jitter.uniform(2, 14) * (-1 if side < 0 else 1)
+                out_pt = (door_x + jitter.uniform(-5, 5), edge_y + into)
                 stairs = min(exits(platform), key=lambda r: abs(r.centerx - door_x))
-                exit_pt = (stairs.centerx, stairs.centery + 8)
+                exit_pt = (stairs.centerx + jitter.uniform(-6, 6), stairs.centery + 8 + jitter.uniform(-4, 4))
                 t_exit_end = t_out + EXIT_SECONDS
                 t_walk_end = t_exit_end + self._walk_time(out_pt, exit_pt)
                 segments = [
@@ -389,8 +523,7 @@ class StationView:
             if passenger.id in walking or state is None:
                 continue
             x, y = state["pos"]
-            step = int(self.time * 8) % 2 + 1 if state["moving"] else 0
-            drawables.append((y, 0, ("person", x, y, passenger, state["facing"], step, 255)))
+            drawables.append((y, 0, ("person", x, y, passenger, state["facing"], state["step"], 255, state["pose"])))
         staff_x, staff_y = IW - 112, PLATFORM_1.y + 40
         drawables.append((staff_y, 0, ("staff", staff_x, staff_y)))
         for walker in shown:
@@ -398,7 +531,7 @@ class StationView:
             if pose is None:
                 continue
             x, y, facing, step, alpha = pose
-            drawables.append((y, 0, ("person", x, y, walker["passenger"], facing, step, alpha)))
+            drawables.append((y, 0, ("person", x, y, walker["passenger"], facing, step, alpha, "stand")))
         for metro in self.sim.metros:
             if metro.line != self.line.name:
                 continue
@@ -413,8 +546,8 @@ class StationView:
                 if pygame.Rect(item[1] - 8, item[2] - 30, 16, 32).collidepoint(mouse):
                     self.hover = ("staff", None, (item[1], item[2] - 34))
             elif item[0] == "person":
-                _, x, y, passenger, facing, step, alpha = item
-                draw_character(s, x, y, passenger.id, facing, step, alpha)
+                _, x, y, passenger, facing, step, alpha, pose = item
+                draw_character(s, x, y, passenger.id, facing, step, alpha, pose)
                 if alpha == 255 and pygame.Rect(x - 8, y - 30, 16, 32).collidepoint(mouse):
                     self.hover = ("passenger", passenger, (x, y - 34))
             else:

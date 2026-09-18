@@ -64,27 +64,44 @@ CHAR_FEET = 29  # y of the feet inside the sprite
 _char_cache: dict[tuple[int, int, int], pygame.Surface] = {}
 
 
-def _build_character(pid: int, facing: int, step: int) -> pygame.Surface:
+def _build_character(pid: int, facing: int, step: int, pose: str = "stand") -> pygame.Surface:
+    """Poses: "stand" (with walking steps), "phone" (looking at a phone held in
+    front), "sit" (on a bench, legs forward). Feet stay at CHAR_FEET."""
     look = look_for(pid)
     s = pygame.Surface((CHAR_W, CHAR_H), pygame.SRCALPHA)
     ox = CHAR_W // 2
     half = 6 if look.wide else 5
-    torso = pygame.Rect(ox - half, 12, half * 2, 10)
-    head = pygame.Rect(ox - 5, 3, 10, 9)
+    drop = 4 if pose == "sit" else 0   # a seated body sits lower
+    torso = pygame.Rect(ox - half, 12 + drop, half * 2, 10)
+    head = pygame.Rect(ox - 5, 3 + drop, 10, 9)
     lift_l = 1 if step == 1 else 0
     lift_r = 1 if step == 2 else 0
-    leg_l = pygame.Rect(ox - 4, 22 - lift_l, 3, 7)
-    leg_r = pygame.Rect(ox + 1, 22 - lift_r, 3, 7)
-    arm_l = pygame.Rect(torso.left - 2, 13, 2, 8)
-    arm_r = pygame.Rect(torso.right, 13, 2, 8)
+    if pose == "sit":
+        # Thighs forward, shins down: feet still on the ground at CHAR_FEET.
+        leg_l = pygame.Rect(ox - 6, 26, 3, 3)
+        leg_r = pygame.Rect(ox + 3, 26, 3, 3)
+        thighs = pygame.Rect(ox - 6, 24, 12, 3)
+    else:
+        leg_l = pygame.Rect(ox - 4, 22 - lift_l, 3, 7)
+        leg_r = pygame.Rect(ox + 1, 22 - lift_r, 3, 7)
+        thighs = None
+    arm_l = pygame.Rect(torso.left - 2, torso.y + 1, 2, 8)
+    arm_r = pygame.Rect(torso.right, torso.y + 1, 2, 8)
+    if pose == "phone" and facing > 0:
+        arm_r = pygame.Rect(torso.right, torso.y + 1, 2, 4)   # upper arm, then a bent forearm
 
     shadow = pygame.Surface((14, 5), pygame.SRCALPHA)
     pygame.draw.ellipse(shadow, (0, 0, 0, 85), shadow.get_rect())
     s.blit(shadow, (ox - 7, CHAR_FEET - 3))
 
-    for part in (leg_l, leg_r, arm_l, arm_r, torso, head):
+    parts = [leg_l, leg_r, arm_l, arm_r, torso, head]
+    if thighs:
+        parts.insert(2, thighs)
+    for part in parts:
         pygame.draw.rect(s, OUTLINE, part.inflate(2, 2))
 
+    if thighs:
+        pygame.draw.rect(s, look.pants, thighs)
     for leg, lift in ((leg_l, lift_l), (leg_r, lift_r)):
         pygame.draw.rect(s, look.pants, leg)
         pygame.draw.rect(s, look.shoes, (leg.x, leg.bottom - 2, leg.width, 2))
@@ -96,6 +113,15 @@ def _build_character(pid: int, facing: int, step: int) -> pygame.Surface:
     for arm in (arm_l, arm_r):
         pygame.draw.rect(s, shade(look.shirt, -10), arm)
         pygame.draw.rect(s, look.skin, (arm.x, arm.bottom - 2, 2, 2))
+    if pose == "phone" and facing > 0:
+        # Forearm across the chest holding a phone, screen lit.
+        fore = pygame.Rect(ox + 1, torso.y + 4, torso.right - ox, 2)
+        pygame.draw.rect(s, shade(look.shirt, -10), fore)
+        pygame.draw.rect(s, look.skin, (fore.x, fore.y, 2, 2))
+        phone = pygame.Rect(ox - 1, torso.y + 2, 2, 4)
+        pygame.draw.rect(s, OUTLINE, phone.inflate(2, 2))
+        pygame.draw.rect(s, (30, 30, 36), phone)
+        pygame.draw.rect(s, (150, 210, 255), (phone.x, phone.y + 1, 1, 2))
     if facing < 0 and look.backpack:
         pack = pygame.Rect(ox - 3, 13, 6, 7)
         pygame.draw.rect(s, OUTLINE, pack.inflate(2, 2))
@@ -106,53 +132,55 @@ def _build_character(pid: int, facing: int, step: int) -> pygame.Surface:
     pygame.draw.rect(s, look.skin, head)
     pygame.draw.rect(s, shade(look.skin, -28), (head.right - 2, head.y + 1, 2, head.height - 1))
     if facing > 0:
-        pygame.draw.rect(s, OUTLINE, (ox - 3, 8, 2, 2))
-        pygame.draw.rect(s, OUTLINE, (ox + 1, 8, 2, 2))
-        pygame.draw.rect(s, shade(look.skin, -40), (ox - 1, 10, 2, 1))
+        eye_y = head.y + 5 + (1 if pose == "phone" else 0)   # looking down at the phone
+        pygame.draw.rect(s, OUTLINE, (ox - 3, eye_y, 2, 2))
+        pygame.draw.rect(s, OUTLINE, (ox + 1, eye_y, 2, 2))
+        pygame.draw.rect(s, shade(look.skin, -40), (ox - 1, eye_y + 2, 2, 1))
         if look.glasses:
-            pygame.draw.line(s, (40, 40, 50), (ox - 4, 8), (ox + 3, 8))
+            pygame.draw.line(s, (40, 40, 50), (ox - 4, eye_y), (ox + 3, eye_y))
 
     hair = look.hair
+    d = drop
     if look.style == "cap":
-        pygame.draw.rect(s, OUTLINE, (ox - 6, 1, 12, 5))
-        pygame.draw.rect(s, look.cap_color, (ox - 5, 2, 10, 3))
-        brim_y = 5 if facing > 0 else 2
+        pygame.draw.rect(s, OUTLINE, (ox - 6, 1 + d, 12, 5))
+        pygame.draw.rect(s, look.cap_color, (ox - 5, 2 + d, 10, 3))
+        brim_y = (5 if facing > 0 else 2) + d
         pygame.draw.rect(s, shade(look.cap_color, -40), (ox - 6, brim_y, 12, 1))
     elif look.style == "bald":
-        pygame.draw.rect(s, shade(look.skin, 16), (ox - 4, 3, 8, 1))
+        pygame.draw.rect(s, shade(look.skin, 16), (ox - 4, 3 + d, 8, 1))
     else:
-        top = pygame.Rect(ox - 5, 2, 10, 3)
+        top = pygame.Rect(ox - 5, 2 + d, 10, 3)
         pygame.draw.rect(s, OUTLINE, top.inflate(2, 2))
         pygame.draw.rect(s, hair, top)
         if look.style == "spiky":
             for sx in (ox - 4, ox - 1, ox + 2):
-                pygame.draw.rect(s, hair, (sx, 1, 2, 1))
+                pygame.draw.rect(s, hair, (sx, 1 + d, 2, 1))
         if look.style in ("long", "bun") or facing < 0:
             depth = 9 if look.style == "long" else 5
             for side in (ox - 6, ox + 4):
-                pygame.draw.rect(s, OUTLINE, (side - (0 if side < ox else 0), 3, 2, depth + 1))
-                pygame.draw.rect(s, hair, (side, 3, 2, depth))
+                pygame.draw.rect(s, OUTLINE, (side, 3 + d, 2, depth + 1))
+                pygame.draw.rect(s, hair, (side, 3 + d, 2, depth))
         if facing < 0:
-            pygame.draw.rect(s, hair, (ox - 5, 4, 10, 4))
+            pygame.draw.rect(s, hair, (ox - 5, 4 + d, 10, 4))
             if look.style == "bun":
-                pygame.draw.rect(s, OUTLINE, (ox - 2, 0, 4, 4))
-                pygame.draw.rect(s, hair, (ox - 1, 1, 2, 2))
+                pygame.draw.rect(s, OUTLINE, (ox - 2, 0 + d, 4, 4))
+                pygame.draw.rect(s, hair, (ox - 1, 1 + d, 2, 2))
     return s
 
 
-def character(pid: int, facing: int = 1, step: int = 0) -> pygame.Surface:
-    key = (pid, facing, step)
+def character(pid: int, facing: int = 1, step: int = 0, pose: str = "stand") -> pygame.Surface:
+    key = (pid, facing, step, pose)
     sprite = _char_cache.get(key)
     if sprite is None:
         if len(_char_cache) > 3000:
             _char_cache.clear()
-        sprite = _char_cache[key] = _build_character(pid, facing, step)
+        sprite = _char_cache[key] = _build_character(pid, facing, step, pose)
     return sprite
 
 
-def draw_character(surface: pygame.Surface, x: float, y: float, pid: int, facing: int = 1, step: int = 0, alpha: int = 255) -> None:
+def draw_character(surface: pygame.Surface, x: float, y: float, pid: int, facing: int = 1, step: int = 0, alpha: int = 255, pose: str = "stand") -> None:
     """Blit a character with their feet at (x, y)."""
-    sprite = character(pid, facing, step)
+    sprite = character(pid, facing, step, pose)
     if alpha < 255:
         sprite = sprite.copy()
         sprite.set_alpha(alpha)

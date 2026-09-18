@@ -133,3 +133,34 @@ def test_switching_line_at_an_interchange_changes_the_sign_and_hides_the_other_l
 
     view.switch_line(0)
     assert view.backdrop.get_at(stripe)[:3] == first.color
+
+
+def test_platform_crowd_has_a_life_and_lines_up_for_the_train(world, sim):
+    run_for(sim, 60)
+    view = StationView(world, sim, "Saldanha")
+    seen_acts = set()
+    lined_up = False
+    for _ in range(int(150 / FRAME)):
+        sim.update(FRAME)
+        view.update(FRAME, sim.drain_events())
+        states = list(view.people.values())
+        seen_acts |= {st["act"] for st in states}
+        # Nobody shares a bench seat, and everyone seated is drawn sitting.
+        seats = [st["seat"] for st in states if st["seat"] is not None]
+        assert len(seats) == len(set(seats))
+        for st in states:
+            if st["act"] == "bench" and not st["moving"]:
+                assert st["pose"] == "sit"
+            if st["act"] == "phone" and not st["moving"]:
+                assert st["pose"] == "phone"
+        for direction in (-1, 1):
+            if view._train_soon(direction):
+                mine = [st for (p, d) in view._waiting_here() if d == direction for st in [view.people[p.id]]]
+                assert all(st["act"] == "edge" for st in mine)
+                # Once there, they face the track: platform 1 looks down, platform 2 up.
+                for st in mine:
+                    if not st["moving"]:
+                        assert st["facing"] == (1 if direction < 0 else -1)
+                lined_up = lined_up or bool(mine)
+    assert {"idle", "phone", "wander", "bench", "board", "edge"} <= seen_acts
+    assert lined_up
