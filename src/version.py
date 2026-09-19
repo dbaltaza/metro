@@ -6,4 +6,4 @@ that forgets the changelog entry ships with an empty body. A test keeps the
 two in step.
 """
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
