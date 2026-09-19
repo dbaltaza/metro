@@ -13,6 +13,7 @@ import pygame
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from src.control_room import ControlRoom        # noqa: E402
 from src.network import build_demo_map          # noqa: E402
 from src.ride_view import RideView              # noqa: E402
 from src.route import (                      # noqa: E402
@@ -21,6 +22,7 @@ from src.route import (                      # noqa: E402
 from src.sim import Simulation, spread_trains
 from src.station_style import style_for   # noqa: E402
 from src.station_view import StationView        # noqa: E402
+from src.tunnel_view import TunnelView          # noqa: E402
 
 DOCS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docs")
 FRAME = 1 / 60
@@ -98,7 +100,21 @@ def main() -> None:
     menu.row = 0
     menu.draw(screen)
     pygame.image.save(screen, os.path.join(DOCS, "settings.png"))
-    print("wrote map.png, station.png, ride.png, loading.png and settings.png in docs/")
+    # The control room, with something broken to attend to, and the view
+    # down the tunnel at it. The fault is set by hand so the picture is the
+    # same every time rather than waiting for one to happen.
+    hurt = max((m for m in sim.metros if 0.2 < m.progress < 0.8), key=lambda m: len(m.riders))
+    hurt.stalled, hurt.fault = 38.0, "traction cut-out"
+    ControlRoom(world, sim).draw(screen, False, 1.0)
+    pygame.image.save(screen, os.path.join(DOCS, "control.png"))
+
+    tunnel = TunnelView(world, sim, hurt)
+    for _ in range(20):
+        tunnel.update(FRAME, [])
+    tunnel.draw(screen, False)
+    pygame.image.save(screen, os.path.join(DOCS, "tunnel.png"))
+
+    print("wrote map, station, ride, loading, settings, control and tunnel pictures in docs/")
 
 
 if __name__ == "__main__":

@@ -1,4 +1,6 @@
-from src.sim import Simulation, spread_trains
+import pytest
+
+from src.sim import FAULTS, FUMBLE_SECONDS, RELEASE_SECONDS, Simulation, spread_trains
 from tests.conftest import FRAME, run_for
 
 
@@ -34,21 +36,54 @@ def test_removed_train_returns_its_riders_to_the_platform(metro_map):
     assert all(p in station.waiting or p.destination == metro.current_station for p in riders)
 
 
-def test_stalls_stop_a_train_and_then_clear(metro_map, sim):
+def stall_one(sim):
+    """Bring on an incident and hand back the train it happened to."""
     sim._next_incident = 0.1
-    stalled = None
     for _ in range(int(60 / FRAME)):
         sim.update(FRAME)
         stalled = next((m for m in sim.metros if m.stalled > 0), None)
         if stalled:
-            break
-    assert stalled is not None
+            return stalled
+    raise AssertionError("no train ever stalled")
+
+
+def test_a_stopped_train_waits_for_the_controller(metro_map, sim):
+    """It used to clear itself in under twenty seconds. Now it sits there
+    with a fault on it until somebody goes and deals with it."""
+    stalled = stall_one(sim)
+    assert stalled.fault in FAULTS
     progress = stalled.progress
-    run_for(sim, 2)
-    assert stalled.progress == progress, "a stalled train must not move"
     run_for(sim, 20)
-    assert stalled.stalled == 0 and stalled.progress != progress or stalled.current_station != stalled.destination
-    assert any("stalled" in text for _, text in sim.log)
+    assert stalled.stalled > 0, "it cleared itself, so there was nothing to attend to"
+    assert stalled.progress == progress, "a stopped train must not move"
+    assert any("stopped" in text for _, text in sim.log)
+
+
+def test_the_controller_can_release_it(metro_map, sim):
+    stalled = stall_one(sim)
+    progress = stalled.progress
+    assert sim.release(stalled) is True
+    assert stalled.fault == "" and sim.released == 1
+    assert stalled.stalled <= RELEASE_SECONDS
+    run_for(sim, 3)
+    assert stalled.stalled == 0
+    assert stalled.progress != progress or stalled.current_station != stalled.destination
+    assert any("released" in text for _, text in sim.log)
+
+
+def test_releasing_a_train_with_nothing_wrong_does_nothing(sim):
+    fine = sim.metros[0]
+    assert fine.stalled == 0
+    assert sim.release(fine) is False
+    assert sim.released == 0
+
+
+def test_the_wrong_control_costs_a_few_seconds(metro_map, sim):
+    stalled = stall_one(sim)
+    before = stalled.stalled
+    sim.fumble(stalled)
+    assert stalled.stalled == pytest.approx(before + FUMBLE_SECONDS)
+    assert stalled.fault, "fumbling does not fix it either"
 
 
 def test_score_is_computed(sim):

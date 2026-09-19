@@ -7,6 +7,8 @@ controller could do: put a train into service, take one out, look down the
 tunnel at a train that has stopped, or go and stand on a platform yourself.
 """
 
+import math
+
 import pygame
 
 from src import sprites
@@ -177,7 +179,8 @@ class ControlRoom:
         screen.blit(sprites.text(self.head, "MAP", TEXT), (52, 28))
         screen.blit(sprites.text(self.title, "Control room", TEXT), (136, 22))
         draw_day_clock(screen, self.head, self.small, self.sim.clock, (WINDOW_W // 2 + 120, 37))
-        note = "PAUSED" if paused else f"{len(self.sim.metros)} trains in service"
+        note = "PAUSED" if paused else (f"{len(self.sim.metros)} trains in service"
+                                        f"    {self.sim.released} faults cleared")
         text = sprites.text(self.small, note, HIGHLIGHT if paused else MUTED)
         screen.blit(text, (WINDOW_W - 24 - text.get_width(), 30))
 
@@ -285,24 +288,28 @@ class ControlRoom:
         stalled = self._stalled()
         if not stalled:
             screen.blit(sprites.text(self.body, "Nothing broken down.", MUTED), (body.x, body.y))
-            screen.blit(sprites.text(self.small, "Trains that stop between stations show up here,",
+            screen.blit(sprites.text(self.small, "Trains that stop between stations show up here.",
                                      shade(MUTED, -30)), (body.x, body.y + 28))
-            screen.blit(sprites.text(self.small, "and you can look down the tunnel at them.",
+            screen.blit(sprites.text(self.small, "Attend to one and you can clear the fault yourself;",
                                      shade(MUTED, -30)), (body.x, body.y + 46))
+            screen.blit(sprites.text(self.small, "left alone they sit there for minutes.",
+                                     shade(MUTED, -30)), (body.x, body.y + 64))
         for i, metro in enumerate(stalled[:6]):
             y = body.y + i * 58
             line = self.world.map.line_named(metro.line)
             pygame.draw.rect(screen, OUTLINE, (body.x - 2, y - 2, body.width + 4, 50), border_radius=6)
             pygame.draw.rect(screen, (30, 22, 24), (body.x - 2, y - 2, body.width + 4, 50), border_radius=6)
             pygame.draw.rect(screen, line.color, (body.x + 2, y + 2, 4, 42))
-            screen.blit(sprites.text(self.head, f"Train #{metro.id} stopped", STALL), (body.x + 16, y + 2))
+            headline = f"Train #{metro.id}: {metro.fault}" if metro.fault else f"Train #{metro.id} stopped"
+            screen.blit(sprites.text(self.head, headline, STALL), (body.x + 16, y + 2))
             where = f"between {metro.current_station} and {metro.destination}"
             screen.blit(sprites.text(self.small, where, MUTED), (body.x + 16, y + 22))
-            held = sprites.text(self.small, f"{metro.stalled:.0f}s   {len(metro.riders)} aboard", LIVE)
+            # Rounded up: a fault with half a second left is not "0s".
+            held = sprites.text(self.small, f"{math.ceil(metro.stalled)}s   {len(metro.riders)} aboard", LIVE)
             screen.blit(held, (body.x + 16, y + 36))
-            look = pygame.Rect(body.right - 86, y + 10, 80, 28)
+            look = pygame.Rect(body.right - 96, y + 10, 90, 28)
             hovering = look.collidepoint(self.mouse)
             pygame.draw.rect(screen, BUTTON_HOVER if hovering else BUTTON, look, border_radius=6)
-            label = sprites.text(self.head, "LOOK", HIGHLIGHT if hovering else TEXT)
+            label = sprites.text(self.head, "ATTEND", HIGHLIGHT if hovering else TEXT)
             screen.blit(label, label.get_rect(center=look.center))
             self.look_buttons.append((look, metro))

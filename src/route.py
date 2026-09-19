@@ -1304,6 +1304,7 @@ def run(sim: Simulation) -> None:
     from src.control_room import ControlRoom
     from src.ride_view import RideView
     from src.station_view import StationView
+    from src.tunnel_view import TunnelView
 
     pygame.init()
     AUDIO.start()
@@ -1341,6 +1342,10 @@ def run(sim: Simulation) -> None:
         through its door."""
         if target[0] == "control":
             return Transition(target, HIGHLIGHT, "Control room", "the whole network at once")
+        if target[0] == "tunnel":
+            metro = target[1]
+            return Transition(target, sim.map.line_named(metro.line).color,
+                              f"Train #{metro.id}", "down the tunnel to it")
         if target[0] == "map":
             # Coming back out of a station: the same tiled walls as going in,
             # with the steps running the other way.
@@ -1423,6 +1428,8 @@ def run(sim: Simulation) -> None:
                     scene = None
                 elif kind == "control":
                     scene = ControlRoom(world, sim)
+                elif kind == "tunnel":
+                    scene = TunnelView(world, sim, transition.target[1])
                 elif kind == "station":
                     scene = StationView(world, sim, transition.target[1], transition.line_name)
                 else:

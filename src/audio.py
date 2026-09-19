@@ -140,6 +140,9 @@ def _build() -> dict[str, list[float]]:
             _at(_swell(_lowpass(_noise(1.1, rng), 0.04), 0.3), 1.0),
             _at(_shape(_sweep(110, 380, 1.1), 0.15, 0.5), 0.35),
         ), 0.5),
+        # The wrong control on the driver's desk: low and rough, twice.
+        "buzz": _at(_shape(_tone(148, 0.12, harmonic=0.8), 0.003, 0.05) + _silence(0.05)
+                    + _shape(_tone(148, 0.14, harmonic=0.8), 0.003, 0.06), 0.5),
         "click": _at(_shape(_lowpass(_noise(0.035, rng), 0.5), 0.001, 0.03), 0.4),
         # A platform full of people, as a wash with no voice you can pick out.
         "murmur": _at(_loopable(_lowpass(_noise(2.6, rng), 0.012)), 0.4),

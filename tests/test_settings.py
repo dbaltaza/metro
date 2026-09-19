@@ -103,7 +103,8 @@ def test_incidents_can_be_turned_off(metro_map):
     sim = Simulation(metro_map, spread_trains(metro_map, 4), seed=5)
     run_for(sim, 400)
     assert all(m.stalled == 0 for m in sim.metros)
-    assert not any("stalled" in text for _, text in sim.log)
+    assert all(not m.fault for m in sim.metros)
+    assert not any("stopped" in text for _, text in sim.log)
 
 
 def test_crowd_setting_changes_how_many_are_drawn(world, sim, metro_map):

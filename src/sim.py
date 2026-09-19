@@ -10,7 +10,14 @@ from src.routing import Leg, plan
 from src.settings import SETTINGS
 
 DWELL_SECONDS = 3.2
-STALL_SECONDS = (8.0, 16.0)
+# How long a fault sits there if nobody attends to it. It used to be eight
+# to sixteen seconds and clear itself; now it waits for the controller, and
+# the point of going down to look at it is that you get it moving in one.
+STALL_SECONDS = (26.0, 52.0)
+RELEASE_SECONDS = 1.4      # the pull away once the fault is cleared
+FUMBLE_SECONDS = 4.0       # what the wrong control on the desk costs you
+# What can be wrong with a train stopped between stations.
+FAULTS = ("traction cut-out", "door interlock", "brake fault", "signal at danger")
 INCIDENT_GAP = (45.0, 110.0)
 LOG_LIMIT = 6
 SPAWN_PER_SECOND = 1.3
@@ -70,6 +77,7 @@ class Simulation:
         self._routes: dict[tuple[str, str], list[Leg]] = {}
         self.transfers = 0
         self.gave_up = 0
+        self.released = 0      # faults the controller cleared in person
         # Score inputs and the event log shown in the panel.
         self.wait_total = 0.0
         self.boardings = 0
@@ -219,6 +227,8 @@ class Simulation:
         metro.held = False
         if metro.stalled > 0:
             metro.stalled = max(metro.stalled - dt, 0.0)
+            if metro.stalled == 0:
+                metro.fault = ""
             return
         metro.progress = min(metro.progress + metro.speed * dt, 1.0)
         if metro.progress >= 1.0:
@@ -302,7 +312,24 @@ class Simulation:
             return
         metro = self.rng.choice(moving)
         metro.stalled = self.rng.uniform(*STALL_SECONDS)
-        self.note(f"Train #{metro.id} stalled between {metro.current_station} and {metro.destination}")
+        metro.fault = self.rng.choice(FAULTS)
+        self.note(f"Train #{metro.id} stopped: {metro.fault}")
+
+    def release(self, metro: Metro) -> bool:
+        """The controller has cleared the fault. The train pulls away rather
+        than sitting there for the rest of its several minutes."""
+        if metro.stalled <= 0:
+            return False
+        metro.stalled = min(metro.stalled, RELEASE_SECONDS)
+        metro.fault = ""
+        self.released += 1
+        self.note(f"Train #{metro.id} released by the controller")
+        return True
+
+    def fumble(self, metro: Metro) -> None:
+        """The wrong control. Nothing breaks, but it costs a few seconds."""
+        if metro.stalled > 0:
+            metro.stalled += FUMBLE_SECONDS
 
     def trains_on(self, line_name: str) -> list[Metro]:
         return [m for m in self.metros if m.line == line_name]
