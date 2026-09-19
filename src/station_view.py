@@ -13,15 +13,15 @@ from src.metro import Metro
 from src.network import Line
 from src.passenger import Passenger
 from src.route import (
-    HIGHLIGHT, MUTED, PANEL_BG, PANEL_EDGE, TEXT, WINDOW_H, WINDOW_W, World,
-    draw_day_clock, lines_serving,
+    BUTTON, BUTTON_HOVER, HIGHLIGHT, MUTED, PANEL_BG, PANEL_EDGE, TEXT, WINDOW_H,
+    WINDOW_W, World, draw_day_clock, lines_serving,
 )
 from src.settings import SETTINGS
 from src.sim import DWELL_SECONDS, Simulation
 from src.sprites import draw_character, shade
 from src.station_layout import (
     IH, IW,
-    BOARD, BUTTON, BUTTON_HOVER, DOOR_CLOSE_SECONDS, DOOR_OPEN_SECONDS, DOOR_W,
+    BOARD, DOOR_CLOSE_SECONDS, DOOR_OPEN_SECONDS, DOOR_W,
     ENTER_AFTER, ENTER_SECONDS, ENTRY_FADE, ENTRY_SPREAD, EXIT_SECONDS,
     FRONT_CAP, HEADER_BG, HEADER_H,
     LEAVE_UNTIL, LED, PIT_A, PIT_B, PIX, PLATFORM_1, PLATFORM_2, ROOF_H, SIDE_H,

@@ -80,6 +80,24 @@ def period_at(hour: float) -> str:
     return name
 
 
+# The hours the network is at its busiest: the tall points of the curve, so
+# they follow it if the curve is ever redrawn.
+PEAKS: tuple[float, ...] = tuple(
+    hour for i, (hour, busy) in enumerate(DEMAND[1:-1], start=1)
+    if busy >= 1.5 and busy > DEMAND[i - 1][1] and busy > DEMAND[i + 1][1]
+)
+
+
+def next_peak(hour: float) -> tuple[float, float]:
+    """The next peak: how many hours away it is, and which hour it is at.
+    Inside a peak it gives that peak, counting down to nothing."""
+    hour %= 24.0
+    for peak in PEAKS:
+        if peak >= hour:
+            return peak - hour, peak
+    return PEAKS[0] + 24.0 - hour, PEAKS[0]
+
+
 def clock_text(hour: float) -> str:
     hour %= 24.0
     minutes = round(hour * 60) % (24 * 60)

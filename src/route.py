@@ -67,6 +67,8 @@ LOAD_STEPS = (6, 16, 30)
 LOAD_COLORS = ((92, 190, 110), (236, 182, 62), (226, 84, 72))
 PIP_OFF = (52, 54, 62)
 
+BUTTON = (40, 44, 52)
+BUTTON_HOVER = (58, 64, 76)
 PANEL_BG = (24, 26, 31)
 PANEL_EDGE = (58, 62, 72)
 TEXT = (228, 231, 237)
@@ -533,6 +535,7 @@ class Panel:
         self.body = pygame.font.SysFont("helvetica,arial", 13)
         self.small = pygame.font.SysFont("helvetica,arial", 11)
         self.buttons: list[tuple[pygame.Rect, str, str]] = []  # rect, action, line
+        self.control_rect = pygame.Rect(self.rect.x + 18, WINDOW_H - 58, PANEL_W - 36, 36)
         self.mouse = (0, 0)
 
     def _text(self, surface, font, string, x, y, color=TEXT) -> int:
@@ -547,7 +550,7 @@ class Panel:
     def _button(self, surface, x: int, y: int, label: str, action: str, line: str) -> pygame.Rect:
         rect = pygame.Rect(x, y, 22, 20)
         hovering = rect.collidepoint(self.mouse)
-        pygame.draw.rect(surface, (58, 64, 76) if hovering else (40, 44, 52), rect, border_radius=5)
+        pygame.draw.rect(surface, BUTTON_HOVER if hovering else BUTTON, rect, border_radius=5)
         text = sprites.text(self.head, label, TEXT)
         surface.blit(text, text.get_rect(center=rect.center))
         self.buttons.append((rect, action, line))
@@ -611,6 +614,11 @@ class Panel:
                     line = line[:-2].rstrip() + "…"
                 y = self._text(surface, self.small, line, x, y, MUTED) + 2
             y = self._rule(surface, y + 8)
+
+        hovering = self.control_rect.collidepoint(self.mouse)
+        pygame.draw.rect(surface, BUTTON_HOVER if hovering else BUTTON, self.control_rect, border_radius=8)
+        label = sprites.text(self.head, "CONTROL ROOM   C", HIGHLIGHT if hovering else TEXT)
+        surface.blit(label, label.get_rect(center=self.control_rect.center))
 
         if selected is None:
             self._text(surface, self.body, "Hover a station to preview it.", x, y, MUTED)
@@ -1149,6 +1157,7 @@ class MapScene:
         # a press is still live, and whether it has moved far enough to be a drag.
         self.grab: tuple[Vector, Vector] | None = None
         self.dragged = False
+        self.pending: tuple | None = None   # a scene the panel asked for
         self.on_minimap = False
 
     # -- the corner minimap ---------------------------------------------------
@@ -1165,8 +1174,9 @@ class MapScene:
 
     # -- input ----------------------------------------------------------------
 
-    def handle(self, event: pygame.event.Event) -> str | None:
+    def handle(self, event: pygame.event.Event) -> str | tuple | None:
         camera = self.camera
+        self.pending = None
         if event.type == pygame.MOUSEMOTION:
             self.panel.mouse = event.pos
             if self.on_minimap:
@@ -1188,6 +1198,8 @@ class MapScene:
                 camera.zoom_to(camera.step - 1)
             elif event.key == pygame.K_0:
                 camera.fit()
+            elif event.key == pygame.K_c:
+                return ("control",)
         elif event.type == pygame.MOUSEBUTTONDOWN and event.button in (1, 2, 3):
             if camera.step and self.minimap_rect().collidepoint(event.pos):
                 self.on_minimap = True
@@ -1195,14 +1207,18 @@ class MapScene:
             elif MAP_RECT.collidepoint(event.pos):
                 self.grab, self.dragged = (event.pos, (camera.x, camera.y)), False
             elif event.button == 1:
-                self._panel_click(event.pos)
+                if self.panel.control_rect.collidepoint(event.pos):
+                    AUDIO.play("click", 0.6)
+                    self.pending = ("control",)
+                else:
+                    self._panel_click(event.pos)
         elif event.type == pygame.MOUSEBUTTONUP and event.button in (1, 2, 3):
             grab, dragged = self.grab, self.dragged
             self.grab, self.dragged, self.on_minimap = None, False, False
             # A press that never moved the map is still a click on a station.
             if grab is not None and not dragged and event.button == 1 and MAP_RECT.collidepoint(event.pos):
                 return self.world.station_at(event.pos, camera)
-        return None
+        return self.pending
 
     def ambience(self) -> dict[str, float]:
         """Up on the network map you are nowhere in particular, so nothing."""
@@ -1285,6 +1301,7 @@ class MapScene:
 
 def run(sim: Simulation) -> None:
     # Imported here because the scenes import constants from this file.
+    from src.control_room import ControlRoom
     from src.ride_view import RideView
     from src.station_view import StationView
 
@@ -1299,7 +1316,7 @@ def run(sim: Simulation) -> None:
     world = World(sim.map)
     map_scene = MapScene(world, sim)
     menu = SettingsMenu()
-    scene = None  # None is the map; otherwise a StationView or RideView
+    scene = None  # None is the map; otherwise one of the other scenes
     transition: Transition | None = None
 
     from src.ride_view import DOOR_XS, FAR_WALL
@@ -1318,9 +1335,12 @@ def run(sim: Simulation) -> None:
         return ((IW / 2 if x is None else x) * PIX, VIEW.y + (pit.top + ROOF_H + SIDE_H / 2) * PIX)
 
     def go(target) -> Transition:
-        """Start a transition towards a target: ("map",), ("station", name)
-        or ("ride", metro). Moves between the map and a station use the
-        sliding doors; stepping on or off a train zooms through its door."""
+        """Start a transition towards a target: ("map",), ("control",),
+        ("station", name) or ("ride", metro). Moves between the map and a
+        station use the sliding doors; stepping on or off a train zooms
+        through its door."""
+        if target[0] == "control":
+            return Transition(target, HIGHLIGHT, "Control room", "the whole network at once")
         if target[0] == "map":
             # Coming back out of a station: the same tiled walls as going in,
             # with the steps running the other way.
@@ -1374,7 +1394,9 @@ def run(sim: Simulation) -> None:
                     transition = go(result)
             else:
                 target = map_scene.handle(event)
-                if target:
+                if isinstance(target, tuple):
+                    transition = go(target)
+                elif target:
                     transition = go(("station", target))
 
         # Simulation and the scenes' animations run on scaled time, so the
@@ -1399,6 +1421,8 @@ def run(sim: Simulation) -> None:
                 kind = transition.target[0]
                 if kind == "map":
                     scene = None
+                elif kind == "control":
+                    scene = ControlRoom(world, sim)
                 elif kind == "station":
                     scene = StationView(world, sim, transition.target[1], transition.line_name)
                 else:
