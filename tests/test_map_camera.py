@@ -278,3 +278,72 @@ def test_the_hovered_name_lights_up(scene):
 
     assert yellow_in_the_name(name) > 10
     assert yellow_in_the_name(None) == 0, "an unhovered name must not be yellow at all"
+
+
+def key(code, unicode=""):
+    return pygame.event.Event(pygame.KEYDOWN, key=code, mod=0, unicode=unicode, scancode=0)
+
+
+def typed(text: str):
+    return [pygame.event.Event(pygame.KEYDOWN, key=ord(c), mod=0, unicode=c, scancode=0) for c in text]
+
+
+def test_a_station_can_be_found_by_typing_its_name(scene):
+    from src.route import matches
+    scene.handle(key(pygame.K_SLASH))
+    assert scene.query == ""
+    for event in typed("sao seb"):
+        scene.handle(event)
+    assert scene.query == "sao seb"
+    # Typed without the accents, and it still finds it.
+    assert matches(scene.query, scene.world.map.stations)[0] == "São Sebastião"
+
+    scene.handle(key(pygame.K_RETURN))
+    assert scene.query is None
+    assert scene.hovered == "São Sebastião"
+    on_screen = scene.camera.to_screen(scene.world.ipositions["São Sebastião"])
+    assert MAP_RECT.collidepoint(on_screen), "it should have gone there"
+    assert scene.camera.step >= 2, "and zoomed in enough to see it"
+
+
+def test_the_finder_swallows_the_maps_own_keys(scene):
+    """Typing Campo should not fit the network because of the 0, or open the
+    control room because of the c."""
+    scene.camera.zoom_to(3)
+    before = scene.camera.step
+    scene.handle(key(pygame.K_SLASH))
+    for event in typed("c0"):
+        assert scene.handle(event) is None
+    assert scene.camera.step == before
+    assert scene.query == "c0"
+    scene.handle(key(pygame.K_BACKSPACE))
+    assert scene.query == "c"
+    scene.handle(key(pygame.K_ESCAPE))
+    assert scene.query is None
+    assert scene.handle(key(pygame.K_c)) == ("control",), "and the keys work again after"
+
+
+def test_a_name_that_matches_nothing_goes_nowhere(scene):
+    where = scene.camera.source().topleft
+    scene.handle(key(pygame.K_SLASH))
+    for event in typed("zzz"):
+        scene.handle(event)
+    scene.handle(key(pygame.K_RETURN))
+    assert scene.query is None
+    assert scene.camera.source().topleft == where
+
+
+def test_the_finder_draws_open_and_empty(scene, display):
+    scene.handle(key(pygame.K_SLASH))
+    scene.draw(display, False)
+    for event in typed("alam"):
+        scene.handle(event)
+    scene.draw(display, False)
+    assert display.get_clip() == display.get_rect()
+
+
+def test_every_line_is_marked_differently(world):
+    """Blue, yellow, green and red: telling green from red by colour alone
+    is exactly what a good part of people cannot do."""
+    from src.route import MARKINGS
+    assert len(set(MARKINGS)) == len(MARKINGS) >= len(world.map.lines)

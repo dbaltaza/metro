@@ -49,7 +49,11 @@ in the morning the platforms are all but empty. Four trains a line does not
 cover a peak, so the fleet is yours to move.
 
 **Run the network from the map.** Drag the map to move around it and scroll to
-zoom in on a corner of the city; zoomed in, a small picture of the whole network
+zoom in on a corner of the city; `/` finds a station by name, accents and all
+or none. Each line carries its own rhythm of notches as well as its colour,
+since telling the green line from the red one by colour alone is exactly what
+a good part of people cannot do, and every station's building is tinted with
+the tiles it is clad in. zoomed in, a small picture of the whole network
 sits in the corner with your view boxed on it, and clicking it takes you there.
 Hover a station to see who is waiting, and three pips beside each one light up
 as its crowd grows. The panel scores you on
@@ -142,6 +146,7 @@ pauses the game while they are open.
 | Key or click | Does |
 |---|---|
 | `C` | Open the control room |
+| `/` | Find a station by name and go to it |
 | Drag the map | Move around the network |
 | Scroll wheel, `+` `-` | Zoom in and out where the cursor is |
 | Arrow keys | Pan |
@@ -200,7 +205,7 @@ regenerates the pictures above. `tools/build_app.sh` packages the app.
 .venv/bin/python -m pytest -q
 ```
 
-A hundred and ninety-one tests, running headless in a couple of seconds each. They cover the
+A hundred and ninety-six tests, running headless in a couple of seconds each. They cover the
 rules that are easy to break by accident: people only board trains going their
 way, everyone is through the doors before they close, countdowns that never
 jump backwards, no two trains on one segment or one platform, nothing standing

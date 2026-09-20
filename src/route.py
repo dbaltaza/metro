@@ -1,5 +1,6 @@
 
 import math
+import unicodedata
 from typing import Callable
 
 import pygame
@@ -77,6 +78,11 @@ MUTED = (138, 144, 156)
 HIGHLIGHT = (255, 214, 90)
 
 TRAIN_L, TRAIN_H = 20, 9
+
+# How each line is notched: the gap in world pixels, and whether the notch
+# is doubled. One rhythm per line, so they can be told apart without the
+# colour. (0, False) leaves a line solid.
+MARKINGS = ((0, False), (4, False), (8, False), (8, True))
 
 # Label placement searches these eight directions around a station and scores
 # each. Bigger penalties beat smaller ones, so the weights matter, not order.
@@ -370,11 +376,35 @@ class World:
                 for k in range(2, int(length / 5)):
                     cx, cy = x1 + ux * k * 5, y1 + uy * k * 5
                     pygame.draw.line(s, shade(TRACK_BED, 22), (cx - px * 2, cy - py * 2), (cx + px * 2, cy + py * 2))
-        for line, points in routes:
+        for i, (line, points) in enumerate(routes):
             for a, b in zip(points, points[1:]):
                 pygame.draw.line(s, line.color, a, b, RAIL_W)
             for p in points:
                 pygame.draw.circle(s, line.color, p, RAIL_W / 2)
+            self._mark_track(s, line, points, *MARKINGS[i % len(MARKINGS)])
+
+    @staticmethod
+    def _mark_track(s: pygame.Surface, line: Line, points, spacing: int, doubled: bool) -> None:
+        """A rhythm of notches along each line, a different one per line.
+
+        The four lines are blue, yellow, green and red, and telling green
+        from red by colour alone is exactly what a good part of people
+        cannot do. The line stays solid so it still reads as a line; the
+        notches give it a texture you can tell apart without the colour."""
+        if not spacing:
+            return
+        notch = shade(line.color, -70)
+        for (x1, y1), (x2, y2) in zip(points, points[1:]):
+            length = math.hypot(x2 - x1, y2 - y1)
+            if not length:
+                continue
+            ux, uy = (x2 - x1) / length, (y2 - y1) / length
+            px, py = -uy, ux
+            for k in range(1, max(int(length / spacing), 1)):
+                for step in ((0.0, 2.0) if doubled else (0.0,)):
+                    cx = x1 + ux * (k * spacing + step)
+                    cy = y1 + uy * (k * spacing + step)
+                    pygame.draw.line(s, notch, (cx - px, cy - py), (cx + px, cy + py))
 
     def building_rect(self, name: str) -> pygame.Rect:
         w, h = building_size(self.map, name)
@@ -386,14 +416,19 @@ class World:
     def _draw_building(self, s: pygame.Surface, name: str) -> None:
         rect = self.building_rect(name)
         roof_h = rect.height // 2
+        # A station's own cladding, mixed into the front of its building, so
+        # the map shows the colours of the city rather than fifty grey boxes.
+        # Only a part of the way: they still have to read as buildings.
+        front = _mix(FRONT, style_for(name).palette.wall, 0.45)
+        roof = _mix(ROOF, style_for(name).palette.cap, 0.25)
         shadow = pygame.Surface(rect.size, pygame.SRCALPHA)
         shadow.fill((0, 0, 0, 90))
         s.blit(shadow, (rect.x + 2, rect.y + 3))
         pygame.draw.rect(s, OUTLINE, rect.inflate(2, 2))
-        pygame.draw.rect(s, ROOF, (rect.x, rect.y, rect.width, roof_h))
-        pygame.draw.line(s, shade(ROOF, 30), (rect.x, rect.y), (rect.right - 1, rect.y))
-        pygame.draw.rect(s, FRONT, (rect.x, rect.y + roof_h, rect.width, rect.height - roof_h))
-        pygame.draw.line(s, shade(FRONT, -30), (rect.x, rect.bottom - 1), (rect.right - 1, rect.bottom - 1))
+        pygame.draw.rect(s, roof, (rect.x, rect.y, rect.width, roof_h))
+        pygame.draw.line(s, shade(roof, 30), (rect.x, rect.y), (rect.right - 1, rect.y))
+        pygame.draw.rect(s, front, (rect.x, rect.y + roof_h, rect.width, rect.height - roof_h))
+        pygame.draw.line(s, shade(front, -30), (rect.x, rect.bottom - 1), (rect.right - 1, rect.bottom - 1))
         serving = self.serving[name]
         stripe_w = rect.width / len(serving)
         for i, line in enumerate(serving):
@@ -542,6 +577,29 @@ def draw_fault_alert(screen, head, small, sim: Simulation, mouse, y: int, width:
     pygame.draw.rect(screen, FAULT_RED if hovering else shade(FAULT_RED, -40), button, border_radius=6)
     screen.blit(text, text.get_rect(center=button.center))
     return button, target
+
+
+def plainly(name: str) -> str:
+    """A station name with its accents taken off and folded to lower case,
+    so typing "sao sebastiao" finds São Sebastião."""
+    stripped = unicodedata.normalize("NFD", name)
+    return "".join(c for c in stripped if not unicodedata.combining(c)).lower()
+
+
+def matches(query: str, names) -> list[str]:
+    """Stations matching what has been typed, the ones starting with it
+    first, then the ones merely containing it."""
+    wanted = plainly(query.strip())
+    if not wanted:
+        return []
+    starts = [n for n in names if plainly(n).startswith(wanted)]
+    inside = [n for n in names if wanted in plainly(n) and n not in starts]
+    return starts + inside
+
+
+def _mix(a, b, k: float):
+    """Part of the way from one colour to another."""
+    return tuple(round(x + (y - x) * k) for x, y in zip(a, b))
 
 
 def money(amount: float) -> str:
@@ -1303,7 +1361,7 @@ class MapScene:
     """The network overview. Drag to move around, scroll to zoom, hover to
     preview a station, click to walk into it."""
 
-    HINT = "drag to pan  \u00b7  scroll to zoom  \u00b7  0 fits the network"
+    HINT = "drag to pan  \u00b7  scroll to zoom  \u00b7  0 fits  \u00b7  / finds a station"
 
     def __init__(self, world: World, sim: Simulation):
         self.world = world
@@ -1319,6 +1377,7 @@ class MapScene:
         self.dragged = False
         self.pending: tuple | None = None   # a scene the panel asked for
         self.alert: tuple | None = None     # the fault bar's button, while there is one
+        self.query: str | None = None       # what is being typed, while the finder is open
         self.on_minimap = False
 
     # -- the corner minimap ---------------------------------------------------
@@ -1338,6 +1397,8 @@ class MapScene:
     def handle(self, event: pygame.event.Event) -> str | tuple | None:
         camera = self.camera
         self.pending = None
+        if self.query is not None and self._finding(event):
+            return None
         if event.type == pygame.MOUSEMOTION:
             self.panel.mouse = event.pos
             if self.on_minimap:
@@ -1361,6 +1422,8 @@ class MapScene:
                 camera.fit()
             elif event.key == pygame.K_c:
                 return ("control",)
+            elif event.key in (pygame.K_SLASH, pygame.K_f):
+                self.query = ""
         elif event.type == pygame.MOUSEBUTTONDOWN and event.button in (1, 2, 3):
             if camera.step and self.minimap_rect().collidepoint(event.pos):
                 self.on_minimap = True
@@ -1386,6 +1449,46 @@ class MapScene:
     def ambience(self) -> dict[str, float]:
         """Up on the network map you are nowhere in particular, so nothing."""
         return {}
+
+    def _finding(self, event: pygame.event.Event) -> bool:
+        """Typing a station name to go to it. Swallows every key while it is
+        open, so the map's own shortcuts do not fire mid-word."""
+        if event.type != pygame.KEYDOWN:
+            return False
+        if event.key == pygame.K_ESCAPE:
+            self.query = None
+        elif event.key == pygame.K_BACKSPACE:
+            self.query = self.query[:-1]
+        elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+            found = matches(self.query, self.world.map.stations)
+            if found:
+                self.camera.zoom_to(max(self.camera.step, 2))
+                self.camera.centre_on(self.world.ipositions[found[0]])
+                self.hovered = found[0]
+            self.query = None
+        elif event.unicode and event.unicode.isprintable():
+            self.query = (self.query + event.unicode)[:32]
+        return True
+
+    def _draw_finder(self, screen) -> None:
+        if self.query is None:
+            return
+        box = pygame.Rect(MAP_RECT.x + 16, MAP_RECT.y + 16, 340, 62)
+        pygame.draw.rect(screen, PANEL_BG, box, border_radius=8)
+        pygame.draw.rect(screen, HIGHLIGHT, box, 1, border_radius=8)
+        typed = self.query or "type a station name"
+        screen.blit(sprites.text(self.hint_font, "GO TO", MUTED), (box.x + 14, box.y + 10))
+        screen.blit(sprites.text(self.badge_font, typed, TEXT if self.query else MUTED),
+                    (box.x + 14, box.y + 26))
+        found = matches(self.query, self.world.map.stations)
+        if found:
+            note = found[0] + (f"   and {len(found) - 1} more" if len(found) > 1 else "")
+            colour = HIGHLIGHT
+        else:
+            note = "nothing by that name" if self.query else "Enter to go, Esc to close"
+            colour = MUTED
+        text = sprites.text(self.hint_font, note, colour)
+        screen.blit(text, (box.right - 14 - text.get_width(), box.y + 12))
 
     def _panel_click(self, pos: Vector) -> None:
         action = self.panel.click(pos)
@@ -1432,6 +1535,7 @@ class MapScene:
             x, y = camera.to_screen(world.building_rect(self.hovered).midtop)
             draw_haloed(screen, self.badge_font, f"{count} waiting", TEXT, (round(x), round(y) - 12))
         self._draw_minimap(screen)
+        self._draw_finder(screen)
         self._draw_hint(screen)
         screen.set_clip(None)
         self.alert = draw_fault_alert(screen, self.badge_font, self.hint_font, self.sim,

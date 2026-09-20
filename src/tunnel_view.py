@@ -59,13 +59,14 @@ ROLL_AWAY = 2.6          # seconds of pulling away before the room takes over
 SHAKE = 0.35             # how much the idling train trembles, in world pixels
 FLASH = 0.5              # how long the wrong control stays lit up red
 
-# The driver's desk. One of these clears each fault, and the order never
-# changes, so you learn where they are rather than reading them every time.
-CONTROLS: tuple[tuple[str, str], ...] = (
-    ("RESET TRACTION", "traction cut-out"),
-    ("DOOR OVERRIDE", "door interlock"),
-    ("RELEASE BRAKES", "brake fault"),
-    ("CALL SIGNALLER", "signal at danger"),
+# The driver's desk. Each control answers for two of the faults, and the
+# order never changes, so you learn where they are rather than reading them
+# every time.
+CONTROLS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("RESET TRACTION", ("traction cut-out", "power supply dip")),
+    ("DOOR OVERRIDE", ("door interlock", "passenger alarm")),
+    ("RELEASE BRAKES", ("brake fault", "wheel slide")),
+    ("CALL SIGNALLER", ("signal at danger", "points failure")),
 )
 
 
@@ -96,7 +97,7 @@ class TunnelView:
         self.big = pygame.font.SysFont("helvetica,arial", 22, bold=True)
 
         self.back_rect = pygame.Rect(18, 19, 132, 36)
-        self.control_rects: list[tuple[pygame.Rect, str, str]] = []   # rect, label, fault
+        self.control_rects: list[tuple[pygame.Rect, str, tuple[str, ...]]] = []
         self.wrong: tuple[str, float] | None = None    # which control, and when
         # 24-bit on purpose, like the other scenes: a surface with an alpha
         # channel picks up stray alpha from sprite blits and turns to blocks.
@@ -128,18 +129,18 @@ class TunnelView:
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             if self.back_rect.collidepoint(event.pos):
                 return ("control",)
-            for rect, label, fault in self.control_rects:
+            for rect, label, faults in self.control_rects:
                 if rect.collidepoint(event.pos):
-                    self._press(label, fault)
+                    self._press(label, faults)
                     return None
         return None
 
-    def _press(self, label: str, fault: str) -> None:
+    def _press(self, label: str, faults: tuple[str, ...]) -> None:
         """A control on the desk. The right one for what is wrong with the
         train clears it; the wrong one costs a few seconds."""
         if not self.stopped():
             return
-        if fault == self.metro.fault:
+        if self.metro.fault in faults:
             self.sim.release(self.metro)
             self.wrong = None
             AUDIO.play("chime", 0.9)
@@ -398,7 +399,7 @@ class TunnelView:
             screen.blit(sprites.text(self.small, told, MUTED), (left, top + 22))
         else:
             screen.blit(sprites.text(self.head, "FAULT CLEARED", SIGNAL_GREEN), (left, top - 2))
-        for i, (label, fault) in enumerate(CONTROLS):
+        for i, (label, faults) in enumerate(CONTROLS):
             rect = pygame.Rect(left + i * 196, top + 50, 180, 46)
             lit = self.wrong is not None and self.wrong[0] == label and self.time - self.wrong[1] < FLASH
             if not self.stopped():
@@ -414,4 +415,4 @@ class TunnelView:
             text = sprites.text(self.head, label, ink)
             screen.blit(text, text.get_rect(center=rect.center))
             if self.stopped():
-                self.control_rects.append((rect, label, fault))
+                self.control_rects.append((rect, label, faults))

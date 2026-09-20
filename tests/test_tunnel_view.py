@@ -34,12 +34,13 @@ def key(code):
 
 
 def control_for(view, fault: str) -> pygame.Rect:
-    return next(rect for rect, _, matches in view.control_rects if matches == fault)
+    return next(rect for rect, _, answers in view.control_rects if fault in answers)
 
 
 def test_there_is_exactly_one_control_for_every_fault():
-    """A fault nothing on the desk clears would leave the train there."""
-    covered = [fault for _, fault in CONTROLS]
+    """A fault nothing on the desk clears would leave the train there, and
+    one that two controls clear would make the desk a coin toss."""
+    covered = [fault for _, faults in CONTROLS for fault in faults]
     assert sorted(covered) == sorted(FAULTS)
     assert len(set(covered)) == len(covered)
     assert len({label for label, _ in CONTROLS}) == len(CONTROLS)

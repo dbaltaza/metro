@@ -16,8 +16,15 @@ DWELL_SECONDS = 3.2
 STALL_SECONDS = (26.0, 52.0)
 RELEASE_SECONDS = 1.4      # the pull away once the fault is cleared
 FUMBLE_SECONDS = 4.0       # what the wrong control on the desk costs you
-# What can be wrong with a train stopped between stations.
-FAULTS = ("traction cut-out", "door interlock", "brake fault", "signal at danger")
+# What can be wrong with a train stopped between stations. Two for each
+# control on the driver's desk, so there is more than one thing behind every
+# button without the desk growing a row of them.
+FAULTS = (
+    "traction cut-out", "power supply dip",
+    "door interlock", "passenger alarm",
+    "brake fault", "wheel slide",
+    "signal at danger", "points failure",
+)
 
 # The books. A fare off every journey finished, a standing cost for every
 # train in service by the hour, something lost every time somebody gives up
