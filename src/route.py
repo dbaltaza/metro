@@ -12,6 +12,7 @@ from src.network import Line, Map, Station
 from src.paths import resource
 from src.settings import OPTIONS, SETTINGS, choice_index
 from src.sim import Simulation
+from src import store
 from src.sprites import OUTLINE, shade
 from src.station_style import style_for, underground
 from src.version import VERSION
@@ -1187,6 +1188,88 @@ class Camera:
         self.move_to(0.0, 0.0)
 
 
+class DayReport:
+    """What a day of service came to, shown when one ends.
+
+    An overlay rather than a scene: it goes over whatever you were looking
+    at, holds the network still while it is up, and gets out of the way."""
+
+    W, H = 520, 392
+
+    def __init__(self):
+        self.open = False
+        self.summary = None
+        self.best = None
+        self.beaten = False
+        self.title = pygame.font.SysFont("helvetica,arial", 26, bold=True)
+        self.head = pygame.font.SysFont("helvetica,arial", 15, bold=True)
+        self.figure = pygame.font.SysFont("helvetica,arial", 22, bold=True)
+        self.small = pygame.font.SysFont("helvetica,arial", 12)
+        self.rect = pygame.Rect(0, 0, self.W, self.H)
+        self.rect.center = (WINDOW_W // 2, WINDOW_H // 2)
+        self.button = pygame.Rect(0, 0, 200, 40)
+        self.button.midbottom = (self.rect.centerx, self.rect.bottom - 22)
+
+    def show(self, summary, best, beaten: bool) -> None:
+        self.summary, self.best, self.beaten, self.open = summary, best, beaten, True
+
+    def handle(self, event: pygame.event.Event) -> bool:
+        if not self.open:
+            return False
+        if event.type == pygame.KEYDOWN and event.key in (pygame.K_ESCAPE, pygame.K_SPACE, pygame.K_RETURN):
+            self.open = False
+        elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            self.open = False
+        return True
+
+    def _row(self, screen, y: int, label: str, value: str, was: str | None, best: bool) -> int:
+        screen.blit(sprites.text(self.head, label, MUTED), (self.rect.x + 30, y + 6))
+        figure = sprites.text(self.figure, value, HIGHLIGHT if best else TEXT)
+        screen.blit(figure, (self.rect.right - 30 - figure.get_width(), y))
+        if was:
+            note = sprites.text(self.small, was, shade(MUTED, -30))
+            screen.blit(note, (self.rect.right - 34 - figure.get_width() - note.get_width(), y + 10))
+        return y + 40
+
+    def draw(self, screen: pygame.Surface) -> None:
+        if not self.open or self.summary is None:
+            return
+        shade_over = pygame.Surface((WINDOW_W, WINDOW_H), pygame.SRCALPHA)
+        shade_over.fill((0, 0, 0, 168))
+        screen.blit(shade_over, (0, 0))
+        pygame.draw.rect(screen, PANEL_BG, self.rect, border_radius=14)
+        pygame.draw.rect(screen, PANEL_EDGE, self.rect, 1, border_radius=14)
+        pygame.draw.rect(screen, HIGHLIGHT, (self.rect.x, self.rect.y, self.W, 3),
+                         border_top_left_radius=14, border_top_right_radius=14)
+
+        day = self.summary
+        screen.blit(sprites.text(self.title, "End of service", TEXT), (self.rect.x + 30, self.rect.y + 26))
+        subtitle = f"Day {day.day}" + ("   your best yet" if self.beaten else "")
+        screen.blit(sprites.text(self.small, subtitle, HIGHLIGHT if self.beaten else MUTED),
+                    (self.rect.x + 30, self.rect.y + 60))
+
+        best = self.best
+        y = self.rect.y + 92
+        y = self._row(screen, y, "Delivered", f"{day.delivered:,}",
+                      f"best {best.delivered:,}" if best else None,
+                      best is None or day.delivered >= best.delivered)
+        y = self._row(screen, y, "Average wait", f"{day.average_wait:.0f}s",
+                      f"best {best.average_wait:.0f}s" if best else None,
+                      best is None or day.average_wait <= best.average_wait)
+        y = self._row(screen, y, "Gave up waiting", f"{day.gave_up:,}",
+                      f"best {best.gave_up:,}" if best else None,
+                      best is None or day.gave_up <= best.gave_up)
+        y = self._row(screen, y, "Faults you cleared", str(day.released),
+                      f"best {best.released}" if best else None,
+                      best is None or day.released >= best.released)
+        y = self._row(screen, y, "Trains in service", str(day.trains), None, False)
+
+        hovering = self.button.collidepoint(pygame.mouse.get_pos())
+        pygame.draw.rect(screen, BUTTON_HOVER if hovering else BUTTON, self.button, border_radius=8)
+        label = sprites.text(self.head, "CARRY ON", TEXT)
+        screen.blit(label, label.get_rect(center=self.button.center))
+
+
 class MapScene:
     """The network overview. Drag to move around, scroll to zoom, hover to
     preview a station, click to walk into it."""
@@ -1360,6 +1443,10 @@ def run(sim: Simulation) -> None:
     from src.tunnel_view import TunnelView
 
     pygame.init()
+    # What was kept from last time: the settings you chose, and the best day
+    # you have run. A save that will not load simply means starting fresh.
+    save = store.load()
+    store.apply_settings(save)
     AUDIO.start()
     icon = resource("docs", "icon.png")
     if icon.exists():
@@ -1370,6 +1457,7 @@ def run(sim: Simulation) -> None:
     world = World(sim.map)
     map_scene = MapScene(world, sim)
     menu = SettingsMenu()
+    report = DayReport()
     scene = None  # None is the map; otherwise one of the other scenes
     transition: Transition | None = None
 
@@ -1436,8 +1524,15 @@ def run(sim: Simulation) -> None:
             if event.type == pygame.QUIT:
                 running = False
                 continue
-            # The settings menu sits over everything and eats what it uses.
+            # The day's report and the settings menu sit over everything and
+            # eat what they use.
+            if report.handle(event):
+                continue
+            was_open = menu.open
             if menu.handle(event):
+                if was_open and not menu.open:
+                    save = store.capture_settings(save)
+                    store.write(save)
                 continue
             if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
                 paused = not paused
@@ -1465,8 +1560,17 @@ def run(sim: Simulation) -> None:
         AUDIO.beds((scene or map_scene).ambience() if transition is None else {})
         AUDIO.update(dt)
 
-        sim_dt = 0.0 if (paused or menu.open) else dt * speed
+        sim_dt = 0.0 if (paused or menu.open or report.open) else dt * speed
         sim.update(sim_dt)
+        finished = sim.take_finished_day()
+        if finished is not None:
+            beaten = finished.better_than(save.best)
+            report.show(finished, save.best, beaten)
+            if beaten:
+                save.best = finished
+            save.days_run += 1
+            save = store.capture_settings(save)
+            store.write(save)
         broken = len(stopped_trains(sim))
         if broken > faults:
             AUDIO.play("buzz", 0.35)
@@ -1476,7 +1580,7 @@ def run(sim: Simulation) -> None:
             forced = scene.update(sim_dt, events)
             if forced and transition is None:
                 transition = go(forced)
-        elif transition is None and not menu.open:
+        elif transition is None and not (menu.open or report.open):
             map_scene.update(dt)
 
         if transition is not None:
@@ -1505,7 +1609,9 @@ def run(sim: Simulation) -> None:
         if transition is not None:
             transition.draw(screen)
         menu.draw(screen)
+        report.draw(screen)
         pygame.display.flip()
 
+    store.write(store.capture_settings(save))
     AUDIO.stop()
     pygame.quit()

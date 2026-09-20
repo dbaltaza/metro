@@ -2,7 +2,7 @@
 import math
 import random
 
-from src.daytime import demand_at, hour_of, pull_at
+from src.daytime import day_number, demand_at, hour_of, pull_at
 from src.metro import Metro
 from src.network import Line, Map, Station
 from src.passenger import Passenger
@@ -78,6 +78,11 @@ class Simulation:
         self.transfers = 0
         self.gave_up = 0
         self.released = 0      # faults the controller cleared in person
+        # Where the counters stood when the current day of service began, and
+        # the day just finished, for whoever wants to show it.
+        self.day = 1
+        self.finished_day: object | None = None
+        self._day_mark = (0, 0, 0, 0.0, 0)
         # Score inputs and the event log shown in the panel.
         self.wait_total = 0.0
         self.boardings = 0
@@ -287,6 +292,34 @@ class Simulation:
 
     # -- public ---------------------------------------------------------------
 
+    def _tick_day(self) -> None:
+        """Count one day of service off from the next. Service ends in the
+        small hours with the network empty, which is where the line is."""
+        today = day_number(self.clock)
+        if today == self.day:
+            return
+        delivered, gave_up, released, waits, boardings = self._day_mark
+        from src.store import DaySummary
+        self.finished_day = DaySummary(
+            day=self.day,
+            delivered=self.delivered - delivered,
+            gave_up=self.gave_up - gave_up,
+            released=self.released - released,
+            average_wait=((self.wait_total - waits) / (self.boardings - boardings)
+                          if self.boardings > boardings else 0.0),
+            trains=len(self.metros),
+        )
+        self.day = today
+        self._mark_day()
+
+    def _mark_day(self) -> None:
+        self._day_mark = (self.delivered, self.gave_up, self.released, self.wait_total, self.boardings)
+
+    def take_finished_day(self):
+        """The day that just ended, once. None if none has."""
+        done, self.finished_day = self.finished_day, None
+        return done
+
     def note(self, text: str) -> None:
         self.log.append((self.clock, text))
         del self.log[:-LOG_LIMIT]
@@ -396,6 +429,7 @@ class Simulation:
 
     def update(self, dt: float) -> None:
         self.clock += dt
+        self._tick_day()
         self._spawn(dt)
         self._tick_give_ups(dt)
         self._tick_incidents(dt)

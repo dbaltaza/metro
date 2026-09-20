@@ -46,6 +46,18 @@ PERIODS: tuple[Period, ...] = (
 )
 
 
+# Service ends in the small hours, when the network is empty: that is where
+# one day is counted off from the next.
+DAY_END_HOUR = 3.0
+DAY_SECONDS = 24 * 60 / MINUTES_PER_SECOND
+_DAY_OFFSET = (DAY_END_HOUR - START_HOUR) % 24 * 60 / MINUTES_PER_SECOND
+
+
+def day_number(clock: float) -> int:
+    """Which day of service a moment belongs to, counting from one."""
+    return 1 + int((clock + DAY_SECONDS - _DAY_OFFSET) // DAY_SECONDS)
+
+
 def hour_of(clock: float) -> float:
     """The hour of the day, 0 to 24, at a given moment of the simulation."""
     return (START_HOUR + clock * MINUTES_PER_SECOND / 60.0) % 24.0
