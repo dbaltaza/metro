@@ -85,8 +85,10 @@ def test_clicking_a_platform_goes_and_stands_on_it(room, display):
 
 
 def test_a_stopped_train_can_be_looked_at(room, display):
+    for other in room.sim.metros:
+        other.stalled, other.fault = 0.0, ""
     metro = room.sim.metros[0]
-    metro.stalled = 9.0
+    metro.stalled, metro.fault = 9.0, "brake fault"
     room.draw(display, False)
     assert room.look_buttons, "a stopped train should be listed"
     rect, listed = room.look_buttons[0]
@@ -126,3 +128,44 @@ def test_nothing_is_clickable_until_it_has_been_drawn(display, world, sim):
     fresh = ControlRoom(world, sim)
     assert fresh.station_rows == [] and fresh.fleet_buttons == [] and fresh.look_buttons == []
     assert fresh.handle(click((640, 500))) is None
+
+
+def test_the_fault_bar_follows_you_into_a_station(display, world, sim, metro_map):
+    """A fault you can only see at the desk is one you will not deal with."""
+    from src.route import draw_fault_alert, stopped_trains
+    from src.station_view import StationView
+
+    run_for(sim, 60)
+    for metro in sim.metros:
+        metro.stalled, metro.fault = 0.0, ""
+    view = StationView(world, sim, "Alameda")
+    view.draw(display, False)
+    assert view.alert is None, "nothing wrong, nothing to say"
+
+    broken = sim.metros[0]
+    broken.stalled, broken.fault = 20.0, "brake fault"
+    assert stopped_trains(sim) == [broken]
+    view.draw(display, False)
+    assert view.alert is not None
+    rect, target = view.alert
+    assert target == ("tunnel", broken), "one fault, so it takes you straight there"
+    assert view.handle(click(rect.center)) == ("tunnel", broken)
+
+    # More than one and it cannot choose for you, so it opens the desk.
+    sim.metros[1].stalled, sim.metros[1].fault = 12.0, "door interlock"
+    view.draw(display, False)
+    assert view.alert[1] == ("control",)
+    assert draw_fault_alert(display, view.head, view.small, sim, (0, 0), 0) is not None
+
+
+def test_a_train_pulling_away_is_no_longer_an_alert(display, world, sim):
+    from src.route import stopped_trains
+
+    run_for(sim, 30)
+    for metro in sim.metros:
+        metro.stalled, metro.fault = 0.0, ""
+    broken = sim.metros[0]
+    broken.stalled, broken.fault = 20.0, "brake fault"
+    sim.release(broken)
+    assert broken.stalled > 0, "it is still standing still for a moment"
+    assert stopped_trains(sim) == [], "but it is dealt with, so stop shouting about it"

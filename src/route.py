@@ -495,6 +495,54 @@ def draw_hover(world: World, name: str | None, color) -> None:
     pygame.draw.rect(world.world, color, rect, 1)
 
 
+FAULT_RED = (214, 66, 60)
+FAULT_INK = (255, 232, 230)
+ALERT_H = 32
+
+
+def stopped_trains(sim: Simulation) -> list[Metro]:
+    """Trains sitting between stations with a fault on them."""
+    return [m for m in sim.metros if m.stalled > 0 and m.fault]
+
+
+def draw_fault_alert(screen, head, small, sim: Simulation, mouse, y: int, width: int = WINDOW_W):
+    """A bar across the top saying something has broken down, drawn by every
+    scene so a fault is not something you only find out about at the desk.
+    Returns the button's rect and where it goes, or None when all is well."""
+    stopped = stopped_trains(sim)
+    if not stopped:
+        return None
+    worst = max(stopped, key=lambda m: len(m.riders))
+    bar = pygame.Rect(0, y, width, ALERT_H)
+    pulse = 0.5 + 0.5 * math.sin(pygame.time.get_ticks() / 260.0)
+    pygame.draw.rect(screen, shade(FAULT_RED, -96 + round(pulse * 26)), bar)
+    pygame.draw.line(screen, FAULT_RED, bar.topleft, bar.topright)
+    pygame.draw.line(screen, shade(FAULT_RED, -60), bar.bottomleft, bar.bottomright)
+    pygame.draw.circle(screen, FAULT_RED, (24, bar.centery), 6)
+
+    if len(stopped) == 1:
+        headline = f"TRAIN #{worst.id} STOPPED"
+        detail = f"{worst.fault}, between {worst.current_station} and {worst.destination}"
+        target = ("tunnel", worst)
+        label = "ATTEND"
+    else:
+        headline = f"{len(stopped)} TRAINS STOPPED"
+        detail = f"worst is #{worst.id} with {len(worst.riders)} aboard"
+        target = ("control",)
+        label = "CONTROL ROOM"
+    screen.blit(sprites.text(head, headline, FAULT_INK), (40, bar.y + 8))
+    screen.blit(sprites.text(small, detail, shade(FAULT_INK, -60)),
+                (40 + sprites.text(head, headline, FAULT_INK).get_width() + 14, bar.y + 10))
+
+    text = sprites.text(head, label, FAULT_INK)
+    button = pygame.Rect(0, 0, text.get_width() + 28, 24)
+    button.midright = (width - 20, bar.centery)
+    hovering = button.collidepoint(mouse)
+    pygame.draw.rect(screen, FAULT_RED if hovering else shade(FAULT_RED, -40), button, border_radius=6)
+    screen.blit(text, text.get_rect(center=button.center))
+    return button, target
+
+
 def busy_color(hour: float):
     """Lit up when the network is at its busiest, dim when nobody is out."""
     busy = demand_at(hour)
@@ -1158,6 +1206,7 @@ class MapScene:
         self.grab: tuple[Vector, Vector] | None = None
         self.dragged = False
         self.pending: tuple | None = None   # a scene the panel asked for
+        self.alert: tuple | None = None     # the fault bar's button, while there is one
         self.on_minimap = False
 
     # -- the corner minimap ---------------------------------------------------
@@ -1206,6 +1255,8 @@ class MapScene:
                 self._minimap_jump(event.pos)
             elif MAP_RECT.collidepoint(event.pos):
                 self.grab, self.dragged = (event.pos, (camera.x, camera.y)), False
+            elif self.alert and self.alert[0].collidepoint(event.pos) and event.button == 1:
+                self.pending = self.alert[1]
             elif event.button == 1:
                 if self.panel.control_rect.collidepoint(event.pos):
                     AUDIO.play("click", 0.6)
@@ -1271,6 +1322,8 @@ class MapScene:
         self._draw_minimap(screen)
         self._draw_hint(screen)
         screen.set_clip(None)
+        self.alert = draw_fault_alert(screen, self.badge_font, self.hint_font, self.sim,
+                                      self.panel.mouse, 0, MAP_RECT.width)
         self.panel.draw(screen, world, self.sim, self.hovered, paused, speed)
 
     def _draw_minimap(self, screen: pygame.Surface) -> None:
@@ -1374,6 +1427,7 @@ def run(sim: Simulation) -> None:
 
     paused = False
     speed = 1.0
+    faults = len(stopped_trains(sim))
     speeds = {pygame.K_1: 1.0, pygame.K_2: 2.0, pygame.K_3: 4.0}
     running = True
     while running:
@@ -1413,6 +1467,10 @@ def run(sim: Simulation) -> None:
 
         sim_dt = 0.0 if (paused or menu.open) else dt * speed
         sim.update(sim_dt)
+        broken = len(stopped_trains(sim))
+        if broken > faults:
+            AUDIO.play("buzz", 0.35)
+        faults = broken
         events = sim.drain_events()
         if scene is not None:
             forced = scene.update(sim_dt, events)

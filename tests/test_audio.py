@@ -142,7 +142,10 @@ def test_a_train_is_heard_pulling_in_and_shutting_its_doors(world, sim, metro_ma
     run_for(sim, 90, view)
     for wanted in ("arrive", "chime", "doors", "depart"):
         assert wanted in ears.heard, (wanted, ears.heard)
-    assert ears.heard.index("arrive") < ears.heard.index("chime")
+    # A train already standing there when you walk in chimes without having
+    # arrived, so what matters is that an arrival is followed by a chime.
+    first = ears.heard.index("arrive")
+    assert "chime" in ears.heard[first:], ears.heard
 
 
 def test_walking_onto_a_platform_is_not_a_train_arriving(world, sim, metro_map, monkeypatch):

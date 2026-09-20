@@ -90,7 +90,14 @@ class Simulation:
         self.events: list[tuple[str, Passenger, Metro]] = []
         self._destinations = sorted(metro_map.stations)
         self._centrality = _centrality(metro_map)
+        # Every train takes the same time to run a hop and the same time to
+        # stand at a platform, so a fleet that all starts at once stays in
+        # step for ever: the whole network arrives and departs on one beat.
+        # A moment of dwell each, to taste, and that never happens.
         for metro in self.metros:
+            # Over the whole cycle, dwell and hop together, or there would
+            # still be a stretch of it with nobody moving anywhere.
+            metro.cooldown = self.rng.uniform(0.0, DWELL_SECONDS + 1.0 / metro.speed)
             self._plan(metro)
 
     # -- trains ---------------------------------------------------------------
@@ -306,10 +313,14 @@ class Simulation:
         self._next_incident -= dt
         if self._next_incident > 0:
             return
-        self._next_incident = self.rng.uniform(*INCIDENT_GAP)
         moving = [m for m in self.metros if m.cooldown == 0 and m.progress > 0 and m.stalled == 0]
         if not moving:
+            # Nothing between stations to break down. Come back shortly rather
+            # than spending the slot: at the top of the hour the whole fleet
+            # can be standing at platforms, and incidents were being skipped.
+            self._next_incident = 1.0
             return
+        self._next_incident = self.rng.uniform(*INCIDENT_GAP)
         metro = self.rng.choice(moving)
         metro.stalled = self.rng.uniform(*STALL_SECONDS)
         metro.fault = self.rng.choice(FAULTS)
@@ -353,7 +364,7 @@ class Simulation:
                     line=line_name,
                     current_station=station,
                     direction=direction,
-                    cooldown=DWELL_SECONDS,
+                    cooldown=self.rng.uniform(0.4, DWELL_SECONDS),
                 )
                 self.metros.append(metro)
                 self._board(metro)

@@ -14,7 +14,7 @@ from src.network import Line
 from src.passenger import Passenger
 from src.route import (
     BUTTON, BUTTON_HOVER, HIGHLIGHT, MUTED, PANEL_BG, PANEL_EDGE, TEXT, WINDOW_H,
-    WINDOW_W, World, draw_day_clock, lines_serving,
+    WINDOW_W, World, draw_day_clock, draw_fault_alert, lines_serving,
 )
 from src.settings import SETTINGS
 from src.sim import DWELL_SECONDS, Simulation
@@ -67,6 +67,7 @@ class StationView:
         self.tiny = pygame.font.SysFont("helvetica,arial", 8, bold=True)
 
         self.back_rect = pygame.Rect(18, 19, 92, 36)
+        self.alert: tuple | None = None   # the fault bar's button, while there is one
         self.tab_rects: list[pygame.Rect] = []
         # 24-bit for the same reason as the map: no stray alpha bytes.
         self.world_surface = pygame.Surface((IW, IH), 0, 24)
@@ -222,6 +223,8 @@ class StationView:
         if event.type == pygame.MOUSEMOTION:
             self.mouse = event.pos
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            if self.alert and self.alert[0].collidepoint(event.pos):
+                return self.alert[1]
             if self.back_rect.collidepoint(event.pos):
                 return "back"
             if self.hover and self.hover[0] == "train":
@@ -347,6 +350,12 @@ class StationView:
                     state["alpha"] = 0
                 self.people[passenger.id] = state
 
+            if self.time < state.get("entered", 0.0):
+                # Still on their way down the stairs. Somebody who has not
+                # come out yet is not choosing to sit on a bench, and used to
+                # be left holding an activity they were in no state to do.
+                continue
+
             if soon[direction] and state["act"] != "edge":
                 if state["seat"] is not None:
                     self.seats_taken.pop(state["seat"], None)
@@ -358,8 +367,6 @@ class StationView:
             elif not soon[direction] and (state["act"] == "edge" or self.time >= state["until"]):
                 self._choose_activity(passenger, direction, state)
 
-            if self.time < state.get("entered", 0.0):
-                continue        # still on their way down the stairs, not out yet
             x, y = state["pos"]
             tx, ty = state["target"]
             dx, dy = tx - x, ty - y
@@ -732,6 +739,7 @@ class StationView:
             screen.blit(name, (rect.x + 24, rect.y + 9))
             self.tab_rects.insert(0, rect)
             x = rect.x - 8
+        self.alert = draw_fault_alert(screen, self.head, self.small, self.sim, self.mouse, HEADER_H)
 
     def _draw_board(self, screen) -> None:
         pygame.draw.rect(screen, PANEL_BG, BOARD)

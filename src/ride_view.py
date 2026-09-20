@@ -12,7 +12,10 @@ from src import sprites
 from src.audio import AUDIO
 from src.metro import Metro
 from src.passenger import Passenger
-from src.route import HIGHLIGHT, MUTED, PANEL_BG, PANEL_EDGE, TEXT, WINDOW_H, WINDOW_W, World
+from src.route import (
+    HIGHLIGHT, MUTED, PANEL_BG, PANEL_EDGE, TEXT, WINDOW_H, WINDOW_W, World,
+    draw_fault_alert,
+)
 from src.sim import DWELL_SECONDS, Simulation
 from src.sprites import OUTLINE, draw_character, shade
 from src.station_layout import (
@@ -111,6 +114,7 @@ class RideView:
         self.tiny = pygame.font.SysFont("helvetica,arial", 10)
 
         self.back_rect = pygame.Rect(18, 19, 92, 36)
+        self.alert: tuple | None = None   # the fault bar's button, while there is one
         self.leave_rect = pygame.Rect(WINDOW_W - 250, BOARD.y + 18, 226, 36)
         # 24-bit for the same reason as the other scenes: no stray alpha bytes.
         self.world_surface = pygame.Surface((IW, IH), 0, 24)
@@ -195,6 +199,8 @@ class RideView:
         if event.type == pygame.MOUSEMOTION:
             self.mouse = event.pos
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            if self.alert and self.alert[0].collidepoint(event.pos):
+                return self.alert[1]
             if self.back_rect.collidepoint(event.pos):
                 return "back"
             if self._dwelling() and self.leave_rect.collidepoint(event.pos):
@@ -601,6 +607,8 @@ class RideView:
         flags = " ".join(f for f in ("PAUSED" if paused else "", f"{self.speed:g}x" if self.speed != 1.0 else "") if f)
         if flags:
             screen.blit(sprites.text(self.head, flags, HIGHLIGHT), (168 + title.get_width() + 34 + sub.get_width(), 30))
+
+        self.alert = draw_fault_alert(screen, self.head, self.small, self.sim, self.mouse, HEADER_H)
 
         # In-car LED display, top right.
         led = pygame.Rect(WINDOW_W - 380, 20, 356, 34)

@@ -109,9 +109,13 @@ def test_station_view_draws_a_plateful_of_people_not_the_whole_queue(world, sim,
 
 
 def test_station_view_stays_fast_on_a_crowded_platform(display, world, sim, metro_map):
-    run_for(sim, 400)
-    busiest = max(metro_map.stations.values(), key=lambda s: len(s.waiting))
-    assert len(busiest.waiting) > 300, "not a crowded enough platform to be a fair test"
+    """Run on until a platform is genuinely packed, rather than trusting a
+    fixed number of seconds to have packed one."""
+    busiest = None
+    while sim.clock < 900 and (busiest is None or len(busiest.waiting) <= 300):
+        run_for(sim, 60)
+        busiest = max(metro_map.stations.values(), key=lambda s: len(s.waiting))
+    assert len(busiest.waiting) > 300, "never found a crowded platform to test on"
     view = StationView(world, sim, busiest.name)
     for _ in range(20):
         sim.update(FRAME)
