@@ -26,6 +26,13 @@ class DaySummary(BaseModel):
     average_wait: float = 0.0
     released: int = 0
     trains: int = 0
+    earned: float = 0.0
+    spent: float = 0.0
+    balance: float = 0.0
+
+    @property
+    def profit(self) -> float:
+        return self.earned - self.spent
 
     def better_than(self, other: "DaySummary | None") -> bool:
         """Delivering more people is the point; everything else is detail."""

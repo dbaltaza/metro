@@ -18,7 +18,7 @@ from src.metro import Metro
 from src.network import Line
 from src.route import (
     BUTTON, BUTTON_HOVER, HIGHLIGHT, LOAD_COLORS, MUTED, PANEL_BG, PANEL_EDGE, TEXT,
-    WINDOW_H, WINDOW_W, World, draw_day_clock, lines_serving,
+    WINDOW_H, WINDOW_W, World, draw_day_clock, lines_serving, money,
 )
 from src.sim import Simulation
 from src.sprites import OUTLINE, shade
@@ -182,7 +182,10 @@ class ControlRoom:
         note = "PAUSED" if paused else (f"{len(self.sim.metros)} trains in service"
                                         f"    {self.sim.released} faults cleared")
         text = sprites.text(self.small, note, HIGHLIGHT if paused else MUTED)
-        screen.blit(text, (WINDOW_W - 24 - text.get_width(), 30))
+        screen.blit(text, (WINDOW_W - 24 - text.get_width(), 40))
+        balance = sprites.text(self.head, money(self.sim.balance),
+                               STALL if self.sim.balance < 0 else LIVE)
+        screen.blit(balance, (WINDOW_W - 24 - balance.get_width(), 18))
 
     def _bar(self, screen, rect: pygame.Rect, length: float, badness: float) -> None:
         """How long, against the worst thing on the desk, and how bad, against
@@ -192,11 +195,12 @@ class ControlRoom:
         if filled:
             pygame.draw.rect(screen, heat(badness), (rect.x, rect.y, filled, rect.height), border_radius=3)
 
-    def _button(self, screen, x: int, y: int, label: str, action: str, line: str) -> pygame.Rect:
+    def _button(self, screen, x: int, y: int, label: str, action: str, line: str,
+                allowed: bool = True) -> pygame.Rect:
         rect = pygame.Rect(x, y, 26, 24)
-        hovering = rect.collidepoint(self.mouse)
+        hovering = rect.collidepoint(self.mouse) and allowed
         pygame.draw.rect(screen, BUTTON_HOVER if hovering else BUTTON, rect, border_radius=6)
-        text = sprites.text(self.head, label, TEXT)
+        text = sprites.text(self.head, label, TEXT if allowed else shade(MUTED, -40))
         screen.blit(text, text.get_rect(center=rect.center))
         self.fleet_buttons.append((rect, action, line))
         return rect
@@ -220,7 +224,8 @@ class ControlRoom:
             screen.blit(count, (body.right - 96, y + 6))
             screen.blit(sprites.text(self.small, "trains", MUTED), (body.right - 96, y + 26))
             self._button(screen, body.right - 58, y + 4, "-", "remove", line.name)
-            self._button(screen, body.right - 28, y + 4, "+", "add", line.name)
+            self._button(screen, body.right - 28, y + 4, "+", "add", line.name,
+                         allowed=self.sim.can_afford_a_train())
 
     def _draw_stations(self, screen) -> None:
         desk = self.stations_desk

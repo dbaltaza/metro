@@ -544,6 +544,11 @@ def draw_fault_alert(screen, head, small, sim: Simulation, mouse, y: int, width:
     return button, target
 
 
+def money(amount: float) -> str:
+    """Euros, rounded, with the sign where a negative one belongs."""
+    return f"-\u20ac{abs(amount):,.0f}" if amount < 0 else f"\u20ac{amount:,.0f}"
+
+
 def busy_color(hour: float):
     """Lit up when the network is at its busiest, dim when nobody is out."""
     busy = demand_at(hour)
@@ -596,11 +601,12 @@ class Panel:
         pygame.draw.line(surface, PANEL_EDGE, (self.rect.x + 18, y), (self.rect.right - 18, y))
         return y + 12
 
-    def _button(self, surface, x: int, y: int, label: str, action: str, line: str) -> pygame.Rect:
+    def _button(self, surface, x: int, y: int, label: str, action: str, line: str,
+                allowed: bool = True) -> pygame.Rect:
         rect = pygame.Rect(x, y, 22, 20)
-        hovering = rect.collidepoint(self.mouse)
+        hovering = rect.collidepoint(self.mouse) and allowed
         pygame.draw.rect(surface, BUTTON_HOVER if hovering else BUTTON, rect, border_radius=5)
-        text = sprites.text(self.head, label, TEXT)
+        text = sprites.text(self.head, label, TEXT if allowed else shade(MUTED, -40))
         surface.blit(text, text.get_rect(center=rect.center))
         self.buttons.append((rect, action, line))
         return rect
@@ -641,6 +647,19 @@ class Panel:
         y = self._text(surface, self.small, f"gave up waiting {sim.gave_up}", x, y + 2, gave_up_color) + 10
         y = self._rule(surface, y)
 
+        # The books. Every train costs by the hour whether it is full or not.
+        y = self._text(surface, self.head, "Books", x, y)
+        broke = sim.balance < 0
+        y = self._text(surface, self.body, f"Balance        {money(sim.balance)}", x, y + 4,
+                       (255, 130, 120) if broke else TEXT)
+        y = self._text(surface, self.small,
+                       f"fares {money(sim.earned)}   costs {money(sim.run_cost + sim.lost)}",
+                       x, y + 2, MUTED)
+        if not sim.can_afford_a_train():
+            y = self._text(surface, self.small, "no money to put a train into service", x, y + 2,
+                           (255, 130, 120))
+        y = self._rule(surface, y + 10)
+
         # Fleet: one lever per line.
         y = self._text(surface, self.head, "Fleet", x, y) + 6
         for line in world.map.lines:
@@ -649,7 +668,8 @@ class Panel:
             self._text(surface, self.body, f"{line.name}", x + 16, y + 2)
             self._text(surface, self.small, f"{count} trains", x + 16, y + 17, MUTED)
             self._button(surface, self.rect.right - 70, y + 4, "-", "remove", line.name)
-            self._button(surface, self.rect.right - 42, y + 4, "+", "add", line.name)
+            self._button(surface, self.rect.right - 42, y + 4, "+", "add", line.name,
+                         allowed=sim.can_afford_a_train())
             y += 32
         y = self._rule(surface, y + 4)
 
@@ -1194,7 +1214,7 @@ class DayReport:
     An overlay rather than a scene: it goes over whatever you were looking
     at, holds the network still while it is up, and gets out of the way."""
 
-    W, H = 520, 392
+    W, H = 520, 500
 
     def __init__(self):
         self.open = False
@@ -1263,6 +1283,15 @@ class DayReport:
                       f"best {best.released}" if best else None,
                       best is None or day.released >= best.released)
         y = self._row(screen, y, "Trains in service", str(day.trains), None, False)
+
+        # The books for the day, and where they leave you.
+        pygame.draw.line(screen, PANEL_EDGE, (self.rect.x + 30, y + 4), (self.rect.right - 30, y + 4))
+        y += 16
+        y = self._row(screen, y, "Fares taken", money(day.earned), None, False)
+        y = self._row(screen, y, "Running costs", money(-day.spent), None, False)
+        profit = day.profit
+        self._row(screen, y, "Profit" if profit >= 0 else "Loss", money(profit),
+                  f"balance {money(day.balance)}", profit >= 0)
 
         hovering = self.button.collidepoint(pygame.mouse.get_pos())
         pygame.draw.rect(screen, BUTTON_HOVER if hovering else BUTTON, self.button, border_radius=8)

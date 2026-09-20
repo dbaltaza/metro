@@ -58,6 +58,20 @@ a train into service or take one out, and logs stalls and fleet changes as they
 happen. Run the service too thin and people give up waiting and walk out, which
 the panel counts against you in red.
 
+**Balance the books.** Every journey finished is a fare, every train in
+service costs by the hour whether it is full or standing at a terminus, every
+person who gives up waiting costs you, and bringing a unit out of the depot
+costs a one-off. Run the service too thin and the fares do not come in; put
+every train you own on the rails and the standing costs eat them. Around half
+again the fleet you start with pays best, and finding that is the game.
+
+**Finish the day.** Service is counted off at three in the morning with the
+network empty, and what the day came to goes up over whatever you were looking
+at: delivered, average wait, how many gave up, how many faults you cleared,
+how many trains you ran, and the books. It is kept, so there is a day to beat
+next time — along with your settings, which no longer go back to their
+defaults every launch.
+
 **Run it from the control room.** `C`, or the button on the panel, opens a
 desk with the whole network on it: every line worst first with what is waiting
 for it and riding on it, the busiest platforms, the shape of the day with a
@@ -152,6 +166,8 @@ pauses the game while they are open.
   which way the city is travelling.
 - `src/audio.py` synthesises every sound in the game at startup and keeps the
   looping backgrounds sliding to the level the scene on screen asks for.
+- `src/store.py` is what survives quitting: your settings and your best day,
+  in one small JSON file in the place the platform keeps such things.
 - `src/control_room.py` is the desk, and `src/tunnel_view.py` is the view down
   the tunnel from a train that has stopped, with the controls that clear it.
 - `src/sim.py` moves the trains, keeps them a safe headway apart, spawns
@@ -184,15 +200,17 @@ regenerates the pictures above. `tools/build_app.sh` packages the app.
 .venv/bin/python -m pytest -q
 ```
 
-A hundred and sixty-eight tests, running headless in a couple of seconds each. They cover the
+A hundred and ninety-one tests, running headless in a couple of seconds each. They cover the
 rules that are easy to break by accident: people only board trains going their
 way, everyone is through the doors before they close, countdowns that never
 jump backwards, no two trains on one segment or one platform, nothing standing
 in a doorway, platform queues that stay bounded over a long session, a drag of
 the map that never turns into walking into a station, no two stations next to
 each other clad the same, sounds that come out at the length they were drawn
-at, a fault that only the right control on the driver's desk clears, and
-every scene rendering without raising. GitHub Actions runs them on every push, and a
+at, a fault that only the right control on the driver's desk clears, a fleet
+that costs more to run than a bigger one earns, a save file that is missing
+or corrupt starting you fresh rather than not starting, and every scene
+rendering without raising. GitHub Actions runs them on every push, and a
 tagged release builds the macOS app.
 
 ## License

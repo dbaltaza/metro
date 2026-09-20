@@ -18,6 +18,17 @@ RELEASE_SECONDS = 1.4      # the pull away once the fault is cleared
 FUMBLE_SECONDS = 4.0       # what the wrong control on the desk costs you
 # What can be wrong with a train stopped between stations.
 FAULTS = ("traction cut-out", "door interlock", "brake fault", "signal at danger")
+
+# The books. A fare off every journey finished, a standing cost for every
+# train in service by the hour, something lost every time somebody gives up
+# and walks out, and a one-off to bring a unit out of the depot. Set so that
+# running about twice the starting fleet pays best: fewer trains is cheap and
+# slow, many more costs more than the extra fares bring in.
+FARE = 1.45
+COST_PER_HOUR = 65.0
+GIVE_UP_COST = 0.80
+PUT_INTO_SERVICE = 400.0
+OPENING_BALANCE = 5000.0
 INCIDENT_GAP = (45.0, 110.0)
 LOG_LIMIT = 6
 SPAWN_PER_SECOND = 1.3
@@ -83,6 +94,11 @@ class Simulation:
         self.day = 1
         self.finished_day: object | None = None
         self._day_mark = (0, 0, 0, 0.0, 0)
+        # The books, all cumulative; the balance is worked out from them.
+        self.earned = 0.0
+        self.run_cost = 0.0
+        self.lost = 0.0
+        self._money_mark = (0.0, 0.0, 0.0)
         # Score inputs and the event log shown in the panel.
         self.wait_total = 0.0
         self.boardings = 0
@@ -162,6 +178,7 @@ class Simulation:
                 self.transfers += 1
             else:
                 self.delivered += 1
+                self.earned += FARE
         metro.riders = staying
 
     def departing_direction(self, metro: Metro) -> int:
@@ -299,6 +316,7 @@ class Simulation:
         if today == self.day:
             return
         delivered, gave_up, released, waits, boardings = self._day_mark
+        earned, run_cost, lost = self._money_mark
         from src.store import DaySummary
         self.finished_day = DaySummary(
             day=self.day,
@@ -308,17 +326,30 @@ class Simulation:
             average_wait=((self.wait_total - waits) / (self.boardings - boardings)
                           if self.boardings > boardings else 0.0),
             trains=len(self.metros),
+            earned=self.earned - earned,
+            spent=(self.run_cost - run_cost) + (self.lost - lost),
+            balance=self.balance,
         )
         self.day = today
         self._mark_day()
 
     def _mark_day(self) -> None:
         self._day_mark = (self.delivered, self.gave_up, self.released, self.wait_total, self.boardings)
+        self._money_mark = (self.earned, self.run_cost, self.lost)
 
     def take_finished_day(self):
         """The day that just ended, once. None if none has."""
         done, self.finished_day = self.finished_day, None
         return done
+
+    @property
+    def balance(self) -> float:
+        return OPENING_BALANCE + self.earned - self.run_cost - self.lost
+
+    def _tick_money(self, dt: float) -> None:
+        """Every train in service costs by the hour, whether it is carrying
+        anybody or standing at a terminus. Sixty seconds of clock is an hour."""
+        self.run_cost += len(self.metros) * COST_PER_HOUR * dt / 60.0
 
     def note(self, text: str) -> None:
         self.log.append((self.clock, text))
@@ -337,7 +368,9 @@ class Simulation:
             if not station.waiting:
                 continue
             keeping = [p for p in station.waiting if p.waited_since > cutoff]
-            self.gave_up += len(station.waiting) - len(keeping)
+            walked_out = len(station.waiting) - len(keeping)
+            self.gave_up += walked_out
+            self.lost += walked_out * GIVE_UP_COST
             station.waiting = keeping
 
     def _tick_incidents(self, dt: float) -> None:
@@ -378,8 +411,15 @@ class Simulation:
     def trains_on(self, line_name: str) -> list[Metro]:
         return [m for m in self.metros if m.line == line_name]
 
+    def can_afford_a_train(self) -> bool:
+        return self.balance >= PUT_INTO_SERVICE
+
     def add_train(self, line_name: str) -> Metro | None:
-        """Put a new train into service on the first free platform of a line."""
+        """Put a new train into service on the first free platform of a line.
+        Costs a one-off to get it out of the depot, and will not run up a
+        debt to do it."""
+        if not self.can_afford_a_train():
+            return None
         line = self.map.line_named(line_name)
         taken = {
             (m.current_station, self.departing_direction(m))
@@ -400,6 +440,7 @@ class Simulation:
                     cooldown=self.rng.uniform(0.4, DWELL_SECONDS),
                 )
                 self.metros.append(metro)
+                self.run_cost += PUT_INTO_SERVICE
                 self._board(metro)
                 self.note(f"Train #{metro.id} enters service at {station}")
                 return metro
@@ -430,6 +471,7 @@ class Simulation:
     def update(self, dt: float) -> None:
         self.clock += dt
         self._tick_day()
+        self._tick_money(dt)
         self._spawn(dt)
         self._tick_give_ups(dt)
         self._tick_incidents(dt)
