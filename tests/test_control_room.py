@@ -97,8 +97,11 @@ def test_a_stopped_train_can_be_looked_at(room, display):
 
 
 def test_the_worst_incident_is_at_the_top(room, display):
+    for metro in room.sim.metros:
+        metro.stalled, metro.fault = 0.0, ""
     first, second = room.sim.metros[0], room.sim.metros[1]
     first.stalled, second.stalled = 4.0, 12.0
+    first.fault = second.fault = "brake fault"
     room.draw(display, False)
     assert [m.id for _, m in room.look_buttons][:2] == [second.id, first.id]
 

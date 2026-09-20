@@ -679,7 +679,7 @@ class RideView:
         if self.hover is None:
             return
         _, passenger, (wx, wy) = self.hover
-        lines = [f"to {passenger.destination}"]
+        lines = [f"to {passenger.destination}", passenger.kind]
         if passenger.changes:
             lines.append(f"changes at {passenger.alight_at}")
         rendered = [sprites.text(self.small, t, TEXT) for t in lines]

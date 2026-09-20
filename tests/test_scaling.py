@@ -12,7 +12,7 @@ from src import sprites
 from src.metro import Metro
 from src.passenger import Passenger
 from src.route import World
-from src.sim import PATIENCE_SECONDS, Simulation, spread_trains
+from src.sim import PATIENCE_BY_KIND, PATIENCE_SECONDS, Simulation, spread_trains
 from src.station_layout import CROWD_LIMIT
 from src.station_view import StationView
 from tests.conftest import FRAME, run_for
@@ -43,7 +43,8 @@ def test_the_network_empties_overnight_and_does_not_ratchet_up(metro_map):
     # Everyone left waiting is within the patience window.
     for station in metro_map.stations.values():
         for passenger in station.waiting:
-            assert sim.clock - passenger.waited_since <= PATIENCE_SECONDS + 2
+            allowed = PATIENCE_SECONDS * PATIENCE_BY_KIND[passenger.kind]
+            assert sim.clock - passenger.waited_since <= allowed + 2
 
 
 def test_boarding_removes_only_the_people_who_boarded(metro_map):

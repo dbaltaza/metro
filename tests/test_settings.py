@@ -3,7 +3,7 @@ import pytest
 
 from src.route import SettingsMenu, StationTransition, Transition, World
 from src.settings import OPTIONS, SETTINGS, choice_index
-from src.sim import Simulation, spread_trains
+from src.sim import PATIENCE_BY_KIND, Simulation, spread_trains
 from src.station_view import StationView
 from tests.conftest import FRAME, run_for
 
@@ -95,7 +95,9 @@ def test_patience_changes_when_people_give_up(metro_map):
     assert sim.gave_up > 0
     for station in metro_map.stations.values():
         for passenger in station.waiting:
-            assert sim.clock - passenger.waited_since <= SETTINGS.patience + 2
+            # A visitor puts up with more of it than a commuter does.
+            allowed = SETTINGS.patience * PATIENCE_BY_KIND[passenger.kind]
+            assert sim.clock - passenger.waited_since <= allowed + 2
 
 
 def test_incidents_can_be_turned_off(metro_map):

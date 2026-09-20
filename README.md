@@ -62,6 +62,14 @@ a train into service or take one out, and logs stalls and fleet changes as they
 happen. Run the service too thin and people give up waiting and walk out, which
 the panel counts against you in red.
 
+**Carry people with somewhere to be.** Not everyone waiting is the same
+person. The peaks are commuters and students, the middle of the day belongs to
+visitors heading for Baixa-Chiado, Rossio and the airport, and the small hours
+to people going to and from work at the wrong end of the clock. A commuter
+knows the network and knows when to give up on it; a visitor has nowhere else
+to be and will stand there half as long again. Hover a rider on a train to see
+which they are.
+
 **Balance the books.** Every journey finished is a fare, every train in
 service costs by the hour whether it is full or standing at a terminus, every
 person who gives up waiting costs you, and bringing a unit out of the depot
@@ -205,7 +213,7 @@ regenerates the pictures above. `tools/build_app.sh` packages the app.
 .venv/bin/python -m pytest -q
 ```
 
-A hundred and ninety-six tests, running headless in a couple of seconds each. They cover the
+Two hundred and two tests, running headless in a couple of seconds each. They cover the
 rules that are easy to break by accident: people only board trains going their
 way, everyone is through the doors before they close, countdowns that never
 jump backwards, no two trains on one segment or one platform, nothing standing

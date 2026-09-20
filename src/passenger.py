@@ -6,6 +6,9 @@ class Passenger(BaseModel):
     id: int
     origin: str
     destination: str
+    # Why they are travelling. It decides how long they will put up with
+    # waiting, and for a visitor, where they are heading.
+    kind: str = "commuter"
     # The journey still ahead: (line, station to get off at) per leg. The
     # first leg is the one being waited for or ridden right now.
     legs: list[tuple[str, str]] = Field(default_factory=list)

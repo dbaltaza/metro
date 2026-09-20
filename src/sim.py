@@ -45,6 +45,26 @@ SPAWN_PER_SECOND = 1.3
 TIDE = 0.6
 MAX_WAITING = 48
 PATIENCE_SECONDS = 150.0   # a platform wait nobody puts up with
+
+# Who is travelling, and how long each of them will stand there. A commuter
+# knows the network and knows when to give up on it; a visitor has nowhere
+# else to be.
+KINDS = ("commuter", "visitor", "student", "shift worker")
+PATIENCE_BY_KIND = {"commuter": 0.75, "visitor": 1.55, "student": 1.15, "shift worker": 1.0}
+# The mix at a given hour: peak, middle of the day, evening, and the small
+# hours, when almost nobody out is travelling for the fun of it.
+KIND_MIX = (
+    (7.0, (70, 6, 21, 3)),
+    (10.0, (30, 40, 25, 5)),
+    (17.0, (68, 8, 20, 4)),
+    (20.0, (22, 34, 20, 24)),
+    (23.5, (16, 10, 14, 60)),
+)
+# Where a visitor is likely to be going. Only the ones this network has.
+VISITOR_STOPS = (
+    "Baixa-Chiado", "Rossio", "Terreiro do Paço", "Cais do Sodré", "Aeroporto",
+    "Oriente", "Parque", "Marquês de Pombal", "Jardim Zoológico", "Santa Apolónia",
+)
 GIVE_UP_SWEEP = 1.0        # how often to check for people who have had enough
 
 
@@ -117,6 +137,7 @@ class Simulation:
         # animate what happened without the sim knowing about screens.
         self.events: list[tuple[str, Passenger, Metro]] = []
         self._destinations = sorted(metro_map.stations)
+        self._visitor_stops = [n for n in VISITOR_STOPS if n in metro_map.stations] or self._destinations
         self._centrality = _centrality(metro_map)
         # Every train takes the same time to run a hop and the same time to
         # stand at a platform, so a fleet that all starts at once stays in
@@ -278,6 +299,16 @@ class Simulation:
             self._routes[key] = plan(self.map, origin, destination)
         return self._routes[key]
 
+    def _kind_at(self, hour: float) -> str:
+        """Who turns up at this hour. The peaks are commuters and students;
+        the middle of the day belongs to visitors; the small hours to people
+        going to and from work at the wrong end of the clock."""
+        weights = KIND_MIX[-1][1]
+        for from_hour, mix in KIND_MIX:
+            if hour >= from_hour:
+                weights = mix
+        return self.rng.choices(KINDS, weights=weights)[0]
+
     def _lines_through(self, station_name: str) -> list[Line]:
         return [l for l in self.map.lines if station_name in l.stations]
 
@@ -294,11 +325,15 @@ class Simulation:
             tide = 1.0 + pull * (0.5 - self._centrality[station.name]) * 2 * TIDE
             if self.rng.random() >= busy * tide:
                 continue
-            destination = self.rng.choice(self._destinations)
-            if pull:
-                other = self.rng.choice(self._destinations)
-                if (self._centrality[other] - self._centrality[destination]) * pull > 0:
-                    destination = other
+            kind = self._kind_at(hour)
+            if kind == "visitor" and self.rng.random() < 0.7:
+                destination = self.rng.choice(self._visitor_stops)
+            else:
+                destination = self.rng.choice(self._destinations)
+                if pull:
+                    other = self.rng.choice(self._destinations)
+                    if (self._centrality[other] - self._centrality[destination]) * pull > 0:
+                        destination = other
             if destination == station.name:
                 continue
             legs = self.route(station.name, destination)
@@ -308,6 +343,7 @@ class Simulation:
                 id=self._next_id,
                 origin=station.name,
                 destination=destination,
+                kind=kind,
                 legs=list(legs),
                 created=self.clock,
                 waited_since=self.clock,
@@ -370,11 +406,14 @@ class Simulation:
         if self._next_sweep > 0:
             return
         self._next_sweep = GIVE_UP_SWEEP
-        cutoff = self.clock - SETTINGS.patience
+        # One cutoff per kind rather than per person: the comparison is in
+        # the hot loop and there are only a handful of kinds.
+        cutoff = {k: self.clock - SETTINGS.patience * m for k, m in PATIENCE_BY_KIND.items()}
+        fallback = self.clock - SETTINGS.patience
         for station in self.map.stations.values():
             if not station.waiting:
                 continue
-            keeping = [p for p in station.waiting if p.waited_since > cutoff]
+            keeping = [p for p in station.waiting if p.waited_since > cutoff.get(p.kind, fallback)]
             walked_out = len(station.waiting) - len(keeping)
             self.gave_up += walked_out
             self.lost += walked_out * GIVE_UP_COST
