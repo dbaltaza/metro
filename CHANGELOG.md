@@ -1,5 +1,51 @@
 # Changelog
 
+## 1.3.0 (2026-09-20)
+
+The day now ends, the fleet costs money, and what you did with it is kept.
+
+**The books.** Every journey finished is a fare, every train in service costs
+by the hour whether it is full or standing at a terminus, everyone who gives
+up waiting costs you, and bringing a unit out of the depot costs a one-off
+you cannot run up a debt for. The numbers are set so the fleet has a best
+size and it is not the biggest one you can put on the rails: over a day,
+sixteen trains turns about nine thousand, twenty-four about fourteen,
+thirty-two about thirteen, forty-eight about eleven. Finding that is the game.
+
+**The end of the day.** Service is counted off at three in the morning with
+the network empty, and the day goes up over whatever you were looking at:
+delivered, average wait, how many gave up, how many faults you cleared, how
+many trains you ran, and the books, each against your best day.
+
+**Kept between runs.** Your settings and your best day, in one small file in
+the place each platform expects it. A save that is missing or unreadable
+starts you fresh rather than stopping the game.
+
+**A fault finds you.** Every scene draws a bar naming the train that has
+stopped, what is wrong with it and where, with a button straight to the cab,
+and a new one buzzes. There are eight faults now, two behind each control on
+the driver's desk.
+
+**People with somewhere to be.** Commuters and students at the peaks,
+visitors through the middle of the day heading for Baixa-Chiado, Rossio and
+the airport, shift workers in the small hours. A commuter gives up sooner
+than a visitor does.
+
+**Fixes.** The whole fleet was running in lockstep -- every train takes the
+same time to run a hop and to stand at a platform, and they all started at
+once, so sampled every half second either all sixteen were moving or none
+were. They now start at a random point of the cycle. Somebody still coming
+down the stairs was being handed an activity they were in no state to do. An
+incident slot was spent even when there was nothing between stations to
+break down.
+
+**Smaller things.** `/` on the map finds a station by name, with or without
+the accents. Each line carries its own rhythm of notches as well as its
+colour, so the green line and the red one can be told apart without it. Every
+station's building on the map is tinted with the tiles it is clad in.
+
+**Under the hood.** 202 tests, up from 168.
+
 ## 1.2.0 (2026-09-20)
 
 A day over the network, a sound to it, a station that looks like itself, and
